@@ -313,7 +313,7 @@ function bindNewTab() {
     setAiMode(!nt.ai);
     $('#ntInput').focus();
   });
-  $('#ntIncog').addEventListener('click', () => createTab({ temp: true }));
+  $('#ntIncog').addEventListener('click', () => run('new-temp-tab'));
   $('#ntLens').addEventListener('click', () => navigate('https://lens.google.com/'));
   $('#ntMic').addEventListener('click', () => {
     // الكتابة بالصوت في ويندوز شغالة في أي مربع كتابة

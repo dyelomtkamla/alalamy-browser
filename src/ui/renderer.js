@@ -44,6 +44,10 @@ function profileForTab(tab) {
   return defaultProfile();
 }
 function randomId() { return Math.random().toString(36).slice(2, 10); }
+// نافذة التصفح المتخفي المنفصلة: كل تبويباتها على جلسة مؤقتة واحدة بتتمسح لما النافذة تتقفل
+const INCOGNITO_WIN = new URLSearchParams(location.search).has('incognito');
+const INC_PARTITION = INCOGNITO_WIN ? 'temp_' + randomId() : null;
+if (INCOGNITO_WIN) document.documentElement.classList.add('incognito-win');
 
 async function toURL(input) {
   const s = input.trim();
@@ -57,6 +61,7 @@ async function toURL(input) {
 
 /* ---------------- التبويبات ---------------- */
 function createTab({ url = NEWTAB, profileId, temp = false, partition, background = false, index, lazy = false, tempName } = {}) {
+  if (INCOGNITO_WIN) { temp = true; partition = INC_PARTITION; }
   const tab = { id: state.nextId++, url, title: 'تبويب جديد', favicon: '', loading: false, webview: null, zoom: typeof defaultZoomLevel === 'function' ? defaultZoomLevel() : 0, temp, tempName };
   if (temp) tab.partition = partition || 'temp_' + randomId();
   else {
@@ -318,7 +323,7 @@ function closeTab(tab) {
   state.tabs.splice(i, 1);
   tab.tabEl.remove();
   if (tab.webview) tab.webview.remove();
-  if (!state.tabs.length) { createTab({ profileId: tab.profileId }); return; }
+  if (!state.tabs.length) { if (INCOGNITO_WIN || state.primary === false) { api.winClose(); return; } createTab({ profileId: tab.profileId }); return; }
   if (state.active === tab) activate(state.tabs[Math.min(i, state.tabs.length - 1)]);
   layoutGrid();
   saveSession();
@@ -358,6 +363,7 @@ function updateNav() {
 
 let sessionTimer = null;
 function saveSession() {
+  if (INCOGNITO_WIN || state.primary === false) return;
   clearTimeout(sessionTimer);
   sessionTimer = setTimeout(() => {
     const tabs = state.tabs.filter(t => !t.temp).map(t => ({ url: t.url, profileId: t.profileId }));
@@ -620,7 +626,7 @@ function openPanel(name) {
   panels[name](body);
 }
 function closePanel() { $('#panel').classList.add('hidden'); state.panel = null; }
-function hidePopups() { $('#menu').classList.add('hidden'); $('#videoMenu').classList.add('hidden'); $('#profileMenu').classList.add('hidden'); $('#profileMenu').style.width = ''; }
+function hidePopups() { $('#menu').classList.add('hidden'); for (const m of document.querySelectorAll('.submenu')) m.classList.add('hidden'); $('#videoMenu').classList.add('hidden'); $('#profileMenu').classList.add('hidden'); $('#profileMenu').style.width = ''; }
 
 /* ---------------- البحث داخل الصفحة ---------------- */
 function openFind() {
@@ -648,7 +654,10 @@ function zoom(delta) {
 function newTabSameProfile() { createTab({}); }
 const commands = {
   'new-tab': newTabSameProfile,
-  'new-temp-tab': () => createTab({ temp: true }),
+  // زي كروم: التصفح المتخفي بيفتح في نافذة لوحده، وجوه نافذة المتخفي بيفتح تبويب جديد فيها
+  'new-temp-tab': () => INCOGNITO_WIN ? createTab({}) : api.newWindow({ incognito: true, forceNew: true }),
+  'new-incognito-window': () => api.newWindow({ incognito: true, forceNew: true }),
+  'new-window': () => api.newWindow({}),
   'sleep-all': () => toast(`تم تنويم ${sleepInactive(true)} تبويب لتوفير الذاكرة — الحسابات تبقى مسجلة`),
   'close-tab': () => closeTab(state.active),
   'reopen-tab': () => { const c = state.closed.pop(); if (c) createTab({ url: c.url, profileId: c.profileId, index: c.index }); },
@@ -694,7 +703,12 @@ function bind() {
   $('#incognitoBtn').addEventListener('click', () => run('new-temp-tab'));
   $('#downloadsBtn').addEventListener('click', () => openPanel('downloads'));
   $('#menuBtn').addEventListener('click', (e) => { e.stopPropagation(); $('#profileMenu').classList.add('hidden'); $('#menu').classList.toggle('hidden'); });
-  $('#menu').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { hidePopups(); run(b.dataset.act); } });
+  $('#menu').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.sub) { e.stopPropagation(); openSubMenu(b); return; }
+    if (b.dataset.keep) { e.stopPropagation(); run(b.dataset.act); return; }
+    hidePopups(); run(b.dataset.act);
+  });
   document.addEventListener('click', (e) => { if (!e.target.closest('.popup')) hidePopups(); });
   $('#panelClose').addEventListener('click', closePanel);
 
@@ -786,17 +800,19 @@ async function start() {
   state.profiles = init.profiles;
   state.bookmarks = init.bookmarks;
   state.settings = init.settings;
+  state.primary = !!init.primary;
+  if (INCOGNITO_WIN) api.setIncognitoPartition(INC_PARTITION);
   state.version = init.version; state.chrome = init.chrome; state.downloadsDefault = init.downloadsDefault;
   for (const d of init.downloads) state.downloads.set(d.id, d);
   bind();
   renderBookmarksBar();
 
   const s = init.session;
-  if (s && Array.isArray(s.tabs) && s.tabs.length && !api.smokeTest) {
+  if (!INCOGNITO_WIN && s && Array.isArray(s.tabs) && s.tabs.length && !api.smokeTest) {
     for (const t of s.tabs) createTab({ url: t.url || NEWTAB, profileId: t.profileId, background: true, lazy: true });
     activate(state.tabs[Math.min(s.active || 0, state.tabs.length - 1)]);
   } else if (!(init.startUrl && !api.smokeTest)) {
-    createTab({ url: state.settings.homepage || NEWTAB });
+    createTab({ url: INCOGNITO_WIN ? NEWTAB : (state.settings.homepage || NEWTAB) });
   }
   // رابط جاي من برنامج تاني (لما يكون المتصفح الافتراضي)
   if (init.startUrl && !api.smokeTest) createTab({ url: init.startUrl });

@@ -1,7 +1,7 @@
 {
   "name": "alalamy-browser",
   "productName": "متصفح العالمي",
-  "version": "1.7.3",
+  "version": "1.8.0",
   "description": "متصفح سطح مكتب مبني على Chromium بمميزات كروم وفايرفوكس وأوبرا ومانع إعلانات ليوتيوب والمواقع",
   "main": "src/main.js",
   "scripts": {
@@ -70,8 +70,9 @@
     "copyright": "© 2026 Ahmed Gamal Elshafey. جميع الحقوق محفوظة"
   },
   "dependencies": {
+    "@ghostery/adblocker-electron": "2.20.1",
     "electron-chrome-extensions": "4.9.0",
     "electron-chrome-web-store": "0.13.0",
-    "@ghostery/adblocker-electron": "2.20.1"
+    "qrcode": "1.5.4"
   }
 }

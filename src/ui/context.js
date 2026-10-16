@@ -21,7 +21,7 @@ function linkItems(a) {
   const items = [
     { id: 'open', label: 'فتح' },
     { id: 'open-bg', label: 'فتح في تبويب جديد' },
-    { id: 'open-temp', label: 'فتح في تبويب خفي' }, SEP,
+    { id: 'open-temp', label: 'فتح في نافذة التصفح المتخفي' }, SEP,
     { id: 'copy-link', label: 'نسخ عنوان الرابط' }
   ];
   if (a.dataset.sc) items.push(SEP, { id: 'remove-sc', label: 'إزالة الاختصار' });
@@ -36,7 +36,7 @@ function homeItems() {
     { id: 'home-reload', label: 'إعادة تحميل', accelerator: 'CmdOrCtrl+R' }, SEP,
     { id: 'interests', label: '✨ اختيار مجالك واهتماماتك' },
     { id: 'toggle-feed', label: state.settings.showFeed === false ? 'إظهار الأخبار' : 'إخفاء الأخبار' }, SEP,
-    { id: 'new-temp', label: 'فتح تبويب خفي', accelerator: 'CmdOrCtrl+Shift+N' }
+    { id: 'new-temp', label: 'نافذة جديدة للتصفح المتخفي', accelerator: 'CmdOrCtrl+Shift+N' }
   ];
 }
 
@@ -52,7 +52,7 @@ async function runMenuChoice(id, ctx) {
     }
     case 'open': return navigate(url);
     case 'open-bg': createTab({ url, background: true }); return toast('اتفتح في تبويب جديد');
-    case 'open-temp': return createTab({ url, temp: true });
+    case 'open-temp': return api.newWindow({ incognito: true, url });
     case 'copy-link': await navigator.clipboard.writeText(url); return toast('تم نسخ الرابط');
     case 'copy-text': return navigator.clipboard.writeText(ctx.text);
     case 'search-text': return createTab({ url: await api.searchURL(ctx.text) });
@@ -69,7 +69,7 @@ async function runMenuChoice(id, ctx) {
     case 'toggle-feed':
       state.settings = await api.saveSettings({ showFeed: state.settings.showFeed === false });
       nt.newsLoaded = 0; $('#ntFeed').innerHTML = ''; return renderFeed();
-    case 'new-temp': return createTab({ temp: true });
+    case 'new-temp': return run('new-temp-tab');
   }
 }
 

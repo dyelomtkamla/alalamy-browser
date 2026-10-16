@@ -90,7 +90,7 @@ const settingsSections = {
       settingRow('مسح كل البيانات', 'يسجل خروجك من كل الحسابات ويمسح الكوكيز والسجل.',
         el('button', { class: 'danger', onclick: async () => { if (confirm('سيتم تسجيل خروجك من كل الحسابات. متابعة؟')) { await api.clearHistory({ cache: true, cookies: true }); toast('تم'); } } }, 'مسح الكل')),
       settingRow('تصفح خفي', 'تبويب لا يحفظ أي شيء ويتمسح كل حاجة فيه عند قفله.',
-        el('button', { onclick: () => { closeSettingsPage(); commands['new-temp-tab'](); } }, 'فتح تبويب خفي'))),
+        el('button', { onclick: () => { closeSettingsPage(); commands['new-incognito-window'](); } }, 'فتح نافذة تصفح متخفي'))),
       card(el('div', { class: 'stitle', style: 'margin-bottom:8px' }, 'السجل'), embedPanel('history'))];
   },
   performance() {

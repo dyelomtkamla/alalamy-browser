@@ -123,8 +123,8 @@ body.native-frame #winControls, body.fullscreen #winControls { display: none; }
 #ntChips button { height: 50px; border-radius: 25px; background: var(--nt-chip); display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 16px; color: var(--nt-text); }
 #ntChips button:hover { filter: brightness(.97); }
 #ntChips button.on { outline: 2px solid #4285f4; }
-#speeddial { margin-top: 26px; background: var(--nt-card); border-radius: 26px; padding: 22px 10px 14px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px 4px; }
-#speeddial .sc { position: relative; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 8px 4px; border-radius: 14px; color: var(--nt-text); }
+#speeddial { margin-top: 26px; background: var(--nt-card); border-radius: 26px; padding: 22px 10px 14px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 4px; }
+#speeddial .sc { position: relative; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 8px 4px; border-radius: 14px; color: var(--nt-text); }
 #speeddial .sc:hover { background: var(--hover); }
 #speeddial .sc .ic { width: 64px; height: 64px; border-radius: 50%; background: var(--nt-tile); display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 600; color: var(--nt-muted); }
 #speeddial .sc img { width: 30px; height: 30px; border-radius: 6px; }
@@ -208,6 +208,9 @@ body.incognito #address { color: #e8eaed; }
 body.native-frame #panel, body.fullscreen #panel { top: 0; }
 
 /* ---- الحقوق وصفحة حول ---- */
+/* علم مصر بالنسر واسم صاحب المتصفح فوق شعار جوجل */
+#ntOwner { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 0 auto 14px; font: 700 19px/1.2 "Segoe UI", system-ui, sans-serif; letter-spacing: .3px; color: var(--nt-text); user-select: none; }
+#ntOwner .egFlag { width: 42px; height: 28px; flex: none; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,.25), 0 0 0 1px rgba(0,0,0,.08); }
 #ntCopyright { margin-top: 30px; text-align: center; font-size: 12px; color: var(--nt-muted); }
 .about { text-align: center; padding: 18px 6px; }
 .about img { width: 128px; height: 128px; }
@@ -328,7 +331,10 @@ body.no-sidebar #sidestrip, body.fs #sidestrip { display: none; }
 
 /* ---- الصفحة الرئيسية: أخبار يمين وكورة شمال والسوشيال في النص ---- */
 .ntGrid { display: grid; grid-template-columns: 240px minmax(0, 680px) 240px; justify-content: center; gap: 28px; padding: 0 20px; align-items: start; }
-.ntSide { position: sticky; top: 20px; margin-top: 8vh; }
+.ntSide { position: sticky; top: 20px; margin-top: 8vh; min-width: 0; }
+/* العمود اللي في النص مايتمددش فوق أعمدة الأخبار والكورة لو فيه اسم موقع طويل */
+.ntCol { min-width: 0; max-width: 100%; }
+.ntCol > * { max-width: 100%; }
 #ntSitesInline { display: none; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
 @media (max-width: 1240px) {
   .ntGrid { grid-template-columns: minmax(0, 680px); }
@@ -417,3 +423,44 @@ body.resizing .ncard, body.resizing .ntList, body.resizing .scard, body.resizing
 .whint { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: color-mix(in srgb, var(--accent) 10%, var(--nt-card)); color: var(--nt-text); border-radius: 16px; padding: 10px 14px; font-size: 13.5px; }
 .whint > span { flex: 1; min-width: 200px; }
 body.resizing .wcard { box-shadow: none !important; }
+
+/* ---- القائمة الرئيسية زي كروم: أيقونات، قوائم فرعية، صف التكبير ---- */
+#menu { min-width: 330px; max-height: calc(100vh - 96px); }
+#menu button, #subMenus button { padding: 6px 14px; min-height: 32px; font-size: 13.5px; }
+#menu i, #subMenus i { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; flex: none; color: var(--muted); }
+#menu i svg.ic, #subMenus i svg.ic { width: 18px; height: 18px; margin: 0; }
+#menu [data-sub]::after { content: '‹'; margin-inline-start: auto; font-size: 18px; line-height: 1; color: var(--muted); }
+#menu [data-sub].open { background: var(--hover); }
+.submenu { min-width: 300px; z-index: 101; }
+.mzoom { display: flex; align-items: center; gap: 6px; padding: 2px 10px 2px 14px; font-size: 13.5px; }
+.mzoom > span { display: flex; align-items: center; gap: 8px; flex: 1; }
+.mzoom .zctl { display: flex; align-items: center; gap: 2px; }
+.mzoom .zctl button, .mzoom .zfs { width: 32px !important; min-height: 32px; height: 32px; padding: 0 !important; justify-content: center; border-radius: 50%; font-size: 18px !important; }
+.mzoom .zctl b { min-width: 46px; text-align: center; font-weight: 500; font-size: 13px; }
+.mzoom .zfs { border-inline-start: 1px solid var(--border); border-radius: 8px; margin-inline-start: 6px; }
+#winName { align-self: center; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 3px 10px; margin-inline-end: 4px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-size: 12px; font-weight: 700; -webkit-app-region: no-drag; }
+/* نافذة التصفح المتخفي المنفصلة: مش محتاجين شارة «خفي» على كل تبويب */
+.incognito-win .tab .badge { display: none !important; }
+/* لوحات QR والمشاركة والبحث في التبويبات ومدير المهام */
+.qrbox { display: flex; justify-content: center; padding: 10px; }
+.qrbox img { width: 240px; height: 240px; border-radius: 12px; background: #fff; padding: 6px; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+.qrurl { width: 100%; box-sizing: border-box; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--input, transparent); color: inherit; font: inherit; margin: 6px 0 10px; }
+.sharegrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.sharegrid button { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); font-weight: 600; }
+.sharegrid button:hover { background: var(--hover); }
+.sharegrid .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--brand); flex: none; }
+.tslist { display: flex; flex-direction: column; gap: 2px; }
+.tslist button { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; text-align: start; }
+.tslist button:hover, .tslist button.on { background: var(--hover); }
+.tslist img, .tslist .ph { width: 18px; height: 18px; flex: none; border-radius: 4px; background: var(--hover); }
+.tslist .tt { display: flex; flex-direction: column; min-width: 0; }
+.tslist .tt b, .tslist .tt small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tslist .tt b { font-weight: 600; font-size: 13.5px; }
+.tslist .tt small { color: var(--muted); font-size: 11.5px; }
+.tasktable { display: flex; flex-direction: column; font-size: 12.5px; margin: 8px 0; }
+.trow { display: grid; grid-template-columns: minmax(0, 1fr) 70px 54px 54px; gap: 6px; padding: 7px 8px; border-radius: 8px; cursor: default; }
+.trow:not(.head):hover { background: var(--hover); }
+.trow.sel { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.trow.head { font-weight: 700; color: var(--muted); border-bottom: 1px solid var(--border); border-radius: 0; }
+.trow .tn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.incognito-win #sidestrip, .incognito-win #sidepanel { display: none !important; }

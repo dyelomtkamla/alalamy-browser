@@ -144,19 +144,46 @@ function partitionOfWebContents(wc) {
 }
 
 // ---------- النافذة الرئيسية ----------
+// كل نافذة مفتوحة (عادية أو تصفح متخفي). win = آخر نافذة كان عليها التركيز، وهي اللي بتستقبل الأوامر
 let win = null;
+let primaryWin = null; // النافذة العادية اللي بتحفظ الجلسة
+const windows = new Set();
 function sendUI(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
+const isIncognitoWin = (w) => !!(w && w.__incognito);
+function winOf(wc) {
+  if (!wc) return null;
+  return BrowserWindow.fromWebContents(wc.hostWebContents || wc) || null;
+}
+// يبعت للنافذة اللي فيها الصفحة دي (مش لازم تكون اللي عليها التركيز)
+function sendTo(wc, channel, payload) {
+  const w = winOf(wc) || win;
+  if (w && !w.isDestroyed()) w.webContents.send(channel, payload);
+}
+/* نافذة تصفح متخفي منفصلة زي كروم: لو فيه واحدة مفتوحة بنفتح فيها، وإلا نفتح نافذة جديدة */
+function openIncognito(url, { forceNew = false } = {}) {
+  const existing = forceNew ? null : [...windows].find(w => isIncognitoWin(w) && !w.isDestroyed());
+  if (existing) {
+    if (existing.isMinimized()) existing.restore();
+    existing.focus();
+    if (url) existing.webContents.send('open-tab', { url });
+    return existing;
+  }
+  return createWindow({ incognito: true, url });
+}
 
-function createWindow() {
-  const bounds = readJSON('window.json', { width: 1300, height: 850 });
-  win = new BrowserWindow({
+function createWindow({ incognito = false, url = null } = {}) {
+  const saved = readJSON('window.json', { width: 1300, height: 850 });
+  const bounds = { width: saved.width || 1300, height: saved.height || 850 };
+  if (!windows.size) Object.assign(bounds, saved);
+  else if (win && !win.isDestroyed()) { const b = win.getBounds(); bounds.x = b.x + 30; bounds.y = b.y + 30; }
+  const w = new BrowserWindow({
     ...bounds,
     minWidth: 700,
     minHeight: 450,
-    title: 'متصفح العالمي',
-    backgroundColor: '#f1f3f4',
+    title: incognito ? 'متصفح العالمي (تصفح متخفي)' : 'متصفح العالمي',
+    backgroundColor: incognito ? '#202124' : '#f1f3f4',
     show: !SMOKE_TEST,
     // أزرار التحكم (تصغير/تكبير/إغلاق) مرسومة على الشمال داخل شريط التبويبات.
     // ويندوز: شريط العنوان مخفي لكن إطار النافذة الأصلي موجود (زي كروم)، فالتكبير والتصغير وتغيير
@@ -173,12 +200,24 @@ function createWindow() {
       additionalArguments: SMOKE_TEST ? ['--smoke-test'] : []
     }
   });
+  w.__incognito = incognito;
+  w.__startUrl = url;
+  windows.add(w);
+  if (!incognito && !primaryWin) primaryWin = w;
+  win = w;
   Menu.setApplicationMenu(null);
-  win.loadFile(path.join(__dirname, 'ui', 'index.html'));
+  w.loadFile(path.join(__dirname, 'ui', 'index.html'), incognito ? { query: { incognito: '1' } } : undefined);
+  w.on('focus', () => { win = w; });
+  w.on('page-title-updated', (e) => e.preventDefault());
+  setupWindow(w, incognito);
+  return w;
+}
+
+function setupWindow(win, incognito) {
   if (SMOKE_TEST) win.webContents.on('console-message', (_e, level, message, line, src) => console.log('UI_CONSOLE', level, message, src + ':' + line));
   win.webContents.on('preload-error', (_e, p, err) => console.log('PRELOAD_ERROR', p, err));
 
-  const saveBounds = () => { if (!win.isMaximized() && !win.isMinimized()) writeJSON('window.json', win.getBounds()); };
+  const saveBounds = () => { if (!incognito && win === primaryWin && !win.isMaximized() && !win.isMinimized()) writeJSON('window.json', win.getBounds()); };
   win.on('resize', saveBounds);
   win.on('move', saveBounds);
 
@@ -199,10 +238,20 @@ function createWindow() {
     extensions.addTab(guest, partitionOfWebContents(guest));
   });
   win.webContents.on('before-input-event', (e, input) => handleShortcut(e, input));
-  const sendWinState = () => sendUI('window:state', { maximized: win.isMaximized(), fullscreen: win.isFullScreen() });
+  const sendWinState = () => { if (!win.isDestroyed()) win.webContents.send('window:state', { maximized: win.isMaximized(), fullscreen: win.isFullScreen() }); };
   for (const ev of ['maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen']) win.on(ev, sendWinState);
-  win.on('closed', () => { win = null; });
+  win.on('closed', () => {
+    windows.delete(win);
+    if (primaryWin === win) primaryWin = [...windows].find(x => !x.__incognito) || null;
+    // بيانات التصفح المتخفي بتتمسح أول ما النافذة تتقفل
+    if (incognito && win.__partition) {
+      try { session.fromPartition(win.__partition).clearStorageData(); session.fromPartition(win.__partition).clearCache(); } catch {}
+    }
+    const rest = [...windows];
+    setFocusedWin(rest[rest.length - 1] || null);
+  });
 }
+function setFocusedWin(w) { win = w; }
 
 // ---------- اختصارات لوحة المفاتيح (تعمل حتى والتركيز داخل الصفحة) ----------
 function handleShortcut(e, input) {
@@ -211,7 +260,11 @@ function handleShortcut(e, input) {
   const k = input.key.toLowerCase();
   let action = null;
   if (ctrl && input.shift && k === 't') action = 'reopen-tab';
-  else if (ctrl && input.shift && k === 'n') action = 'new-temp-tab';
+  else if (ctrl && input.shift && k === 'n') action = 'new-incognito-window';
+  else if (ctrl && !input.shift && k === 'n') action = 'new-window';
+  else if (ctrl && input.shift && k === 'a') action = 'search-tabs';
+  else if (input.shift && !ctrl && k === 'escape') action = 'task-manager';
+  else if (ctrl && input.shift && k === 'b') action = 'toggle-bookmarks-bar';
   else if (ctrl && input.shift && k === 'delete') action = 'show-history';
   else if (ctrl && input.shift && k === 's') action = 'screenshot';
   else if (k === 'f9') action = 'reader';
@@ -241,7 +294,7 @@ function handleShortcut(e, input) {
   else if (k === 'escape') action = 'escape';
   if (action) {
     if (action !== 'escape') e.preventDefault();
-    sendUI('shortcut', action);
+    sendTo(e.sender, 'shortcut', action);
   }
 }
 
@@ -257,12 +310,12 @@ function setupGuest(guest) {
         webPreferences: { partition, contextIsolation: true, nodeIntegration: false } } };
     }
     if (url === 'about:blank') return { action: 'allow' };
-    sendUI('open-tab', { url, partition, background: disposition === 'background-tab' });
+    sendTo(guest, 'open-tab', { url, partition, background: disposition === 'background-tab' });
     return { action: 'deny' };
   });
 
   guest.on('context-menu', (_e, p) => {
-    Menu.buildFromTemplate(pageMenu(guest, p)).popup({ window: win });
+    Menu.buildFromTemplate(pageMenu(guest, p)).popup({ window: winOf(guest) || win });
   });
 }
 
@@ -295,7 +348,8 @@ function pageMenu(guest, p) {
   }
   if (p.linkURL) {
     add({ label: 'فتح الرابط في تبويب جديد', click: () => sendUI('open-tab', { url: p.linkURL, partition, background: true }) },
-      { label: 'فتح الرابط في تبويب خفي', click: () => sendUI('open-tab', { url: p.linkURL, temp: true }) });
+      partition && partition.startsWith('temp_') ? null : { label: 'فتح الرابط في نافذة جديدة', click: () => createWindow({ url: p.linkURL }) },
+      { label: 'فتح الرابط في نافذة التصفح المتخفي', click: () => openIncognito(p.linkURL) });
     add({ label: 'حفظ الرابط باسم...', click: () => guest.downloadURL(p.linkURL) },
       { label: 'نسخ عنوان الرابط', click: () => clipboard.writeText(p.linkURL) },
       p.linkText && p.linkText.trim() ? { label: 'نسخ نص الرابط', click: () => clipboard.writeText(p.linkText.trim()) } : null,
@@ -327,14 +381,17 @@ function pageMenu(guest, p) {
   const plainPage = !p.linkURL && !p.isEditable && !(p.selectionText && p.selectionText.trim()) && p.mediaType === 'none';
   if (plainPage || (p.mediaType === 'image' && !p.linkURL)) {
     if (plainPage) {
-      add(key('رجوع', 'Alt+Left', { enabled: guest.navigationHistory.canGoBack(), click: () => guest.navigationHistory.goBack() }),
-        key('تقدم', 'Alt+Right', { enabled: guest.navigationHistory.canGoForward(), click: () => guest.navigationHistory.goForward() }),
+      add(key('إلى الوراء', 'Alt+Left', { enabled: guest.navigationHistory.canGoBack(), click: () => guest.navigationHistory.goBack() }),
+        key('إعادة توجيه', 'Alt+Right', { enabled: guest.navigationHistory.canGoForward(), click: () => guest.navigationHistory.goForward() }),
         key('إعادة تحميل', 'CmdOrCtrl+R', { click: () => guest.reload() }));
       add(key('حفظ باسم...', 'CmdOrCtrl+S', { click: () => savePage(guest) }),
         key('طباعة...', 'CmdOrCtrl+P', { click: () => guest.print() }),
-        web ? { label: 'البحث في الصفحة دي باستخدام Google Lens', click: () => lensPage(guest, partition) } : null,
-        web ? key('ترجمة إلى العربية', undefined, { click: () => sendUI('shortcut', 'translate-ar') }) : null,
-        web ? key('الفتح في وضع القراءة', 'F9', { click: () => sendUI('shortcut', 'reader') }) : null);
+        web ? { label: 'إرسال...', click: () => sendTo(guest, 'shortcut', 'share-page') } : null,
+        web ? { label: 'البحث في علامة التبويب هذه باستخدام "عدسة Google"', click: () => lensPage(guest, partition) } : null,
+        web ? key('الفتح في وضع القراءة', 'Alt+Shift+R', { click: () => sendTo(guest, 'shortcut', 'reader') }) : null);
+      if (web) add({ label: 'الإرسال إلى جهازك', click: () => sendTo(guest, 'shortcut', 'qr-code') },
+        { label: 'إنشاء رمز استجابة سريعة لهذه الصفحة', click: () => sendTo(guest, 'shortcut', 'qr-code') });
+      if (web) add(key('ترجمة إلى العربية', undefined, { click: () => sendTo(guest, 'shortcut', 'translate-ar') }));
     }
     if (web) add({ label: '🎬 تحميل الفيديو ده', click: () => guest.send('video:resolve', { x: p.x, y: p.y, open: true }) },
       { label: '🎵 تحميل الصوت MP3', click: () => guest.send('video:resolve', { x: p.x, y: p.y, open: true, mp3: true }) });
@@ -368,7 +425,8 @@ async function lensPage(guest, partition) {
 /* قايمة الكليك اليمين في واجهة المتصفح نفسها (شريط العنوان، الصفحة الرئيسية...): الواجهة بتبعت العناصر وإحنا بنرجّع اختيار المستخدم */
 ipcMain.handle('clipboard:read', () => clipboard.readText());
 ipcMain.handle('ui:menu', (e, items) => new Promise((resolve) => {
-  if (!win || e.sender !== win.webContents || !Array.isArray(items)) return resolve(null);
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w || !windows.has(w) || !Array.isArray(items)) return resolve(null);
   const ROLES = new Set(['undo', 'redo', 'cut', 'copy', 'paste', 'pasteAndMatchStyle', 'selectAll']);
   let chosen = null;
   const tpl = items.slice(0, 40).map((it) => {
@@ -380,7 +438,7 @@ ipcMain.handle('ui:menu', (e, items) => new Promise((resolve) => {
     if (it.role === 'emoji') { delete o.role; o.click = () => app.showEmojiPanel(); o.visible = app.isEmojiPanelSupported(); }
     return o;
   });
-  Menu.buildFromTemplate(tpl).popup({ window: win, callback: () => setTimeout(() => resolve(chosen), 0) });
+  Menu.buildFromTemplate(tpl).popup({ window: w, callback: () => setTimeout(() => resolve(chosen), 0) });
 }));
 
 async function savePage(wc) {
@@ -437,20 +495,36 @@ ipcMain.handle('pw:get', (e, origin) => {
 function safeOrigin(u) { try { return new URL(u).origin; } catch { return ''; } }
 
 // ---------- واجهة برمجية للواجهة الرسومية ----------
-ipcMain.handle('init', () => ({
+ipcMain.handle('init', (e) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  const first = w && w === primaryWin && !w.__restored;
+  if (w) w.__restored = true;
+  return {
   profiles: store.profiles,
   bookmarks: store.bookmarks,
   settings: store.settings,
-  session: store.settings.restoreTabs ? store.session : null,
+  session: first && store.settings.restoreTabs ? store.session : null,
+  incognito: isIncognitoWin(w),
+  primary: !!(w && w === primaryWin),
   downloads: store.downloads,
   encryption: safeStorage.isEncryptionAvailable(),
   platform: process.platform,
   version: app.getVersion(),
   downloadsDefault: app.getPath('downloads'),
   chrome: process.versions.chrome,
-  startUrl: urlFromArgs(process.argv),
-  maximized: win ? win.isMaximized() : false
-}));
+  startUrl: first ? urlFromArgs(process.argv) : (w && w.__startUrl) || null,
+  maximized: w ? w.isMaximized() : false
+  };
+});
+ipcMain.handle('window:new', (e, opts) => {
+  const o = opts || {};
+  if (o.incognito) openIncognito(typeof o.url === 'string' ? o.url : null, { forceNew: !!o.forceNew });
+  else createWindow({ url: typeof o.url === 'string' ? o.url : null });
+});
+ipcMain.handle('window:incognito-partition', (e, p) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (w && w.__incognito && typeof p === 'string' && /^temp_[a-z0-9]+$/.test(p)) w.__partition = p;
+});
 
 ipcMain.handle('update:check', () => updater.check({ manual: true }));
 
@@ -538,9 +612,9 @@ ipcMain.handle('video:tools', async () => ({ version: await downloader.version()
 ipcMain.handle('video:update', async () => { try { return await downloader.update(); } catch (e) { return { error: e.message }; } });
 
 app.setAboutPanelOptions({ applicationName: 'متصفح العالمي', copyright: '© 2026 Ahmed Gamal Elshafey. جميع الحقوق محفوظة' });
-ipcMain.handle('window:minimize', () => { if (win) win.minimize(); });
-ipcMain.handle('window:toggle-maximize', () => { if (win) win.isMaximized() ? win.unmaximize() : win.maximize(); });
-ipcMain.handle('window:close', () => { if (win) win.close(); });
+ipcMain.handle('window:minimize', (e) => { const w = BrowserWindow.fromWebContents(e.sender); if (w) w.minimize(); });
+ipcMain.handle('window:toggle-maximize', (e) => { const w = BrowserWindow.fromWebContents(e.sender); if (w) w.isMaximized() ? w.unmaximize() : w.maximize(); });
+ipcMain.handle('window:close', (e) => { const w = BrowserWindow.fromWebContents(e.sender); if (w) w.close(); });
 
 // المتصفح الافتراضي: ويندوز 10/11 لا يسمح بالتغيير من البرنامج، فنفتح صفحة التطبيقات الافتراضية
 // (برنامج التسطيب يسجّل المتصفح عند ويندوز، والاختيار النهائي من المستخدم في صفحة ويندوز)
@@ -803,7 +877,8 @@ ipcMain.handle('translate:many', async (_e, { texts, target, source }) => {
   catch (err) { return { ok: false, error: String(err.message || err) }; }
 });
 
-ipcMain.handle('session:save', (_e, s) => {
+ipcMain.handle('session:save', (e, s) => {
+  if (BrowserWindow.fromWebContents(e.sender) !== primaryWin) return; // النوافذ التانية والمتخفية مابتحفظش جلسة
   store.session = s;
   writeJSON('session.json', s);
 });
@@ -837,7 +912,49 @@ ipcMain.handle('adblock:update', async () => {
   try { await adblock.update(true); return { ok: true }; } catch (e) { return { ok: false, error: String(e.message || e) }; }
 });
 
-ipcMain.handle('window:fullscreen', () => { if (win) win.setFullScreen(!win.isFullScreen()); });
+ipcMain.handle('window:fullscreen', (e) => { const w = BrowserWindow.fromWebContents(e.sender) || win; if (w) w.setFullScreen(!w.isFullScreen()); });
+
+ipcMain.handle('page:lens', (_e, wcId) => {
+  const wc = allWebContents.fromId(wcId);
+  if (wc) lensPage(wc, partitionOfWebContents(wc));
+});
+// رمز QR للصفحة (زي كروم)
+ipcMain.handle('qr:make', async (_e, text) => {
+  if (typeof text !== 'string' || !text || text.length > 2000) return null;
+  try { return await require('qrcode').toDataURL(text, { width: 320, margin: 2, errorCorrectionLevel: 'M' }); } catch { return null; }
+});
+// مدير المهام: الذاكرة والمعالج لكل تبويب وعملية
+ipcMain.handle('task:list', () => {
+  const metrics = new Map(app.getAppMetrics().map(m => [m.pid, m]));
+  const rows = [];
+  const used = new Set();
+  for (const wc of allWebContents.getAllWebContents()) {
+    if (wc.isDestroyed() || wc.getType() !== 'webview') continue;
+    const pid = wc.getOSProcessId();
+    const m = metrics.get(pid);
+    if (!m) continue;
+    used.add(pid);
+    rows.push({ wcId: wc.id, pid, name: wc.getTitle() || wc.getURL(), url: wc.getURL(), mem: m.memory.workingSetSize, cpu: m.cpu.percentCPUUsage });
+  }
+  const names = { Browser: 'المتصفح', GPU: 'معالج الرسوميات', Utility: 'خدمة مساعدة', Tab: 'واجهة المتصفح', Zygote: 'عملية النظام' };
+  for (const m of metrics.values()) {
+    if (used.has(m.pid)) continue;
+    rows.push({ wcId: null, pid: m.pid, name: (names[m.type] || m.type) + (m.serviceName ? ` (${m.serviceName})` : ''), mem: m.memory.workingSetSize, cpu: m.cpu.percentCPUUsage });
+  }
+  return rows.sort((a, b) => b.mem - a.mem);
+});
+ipcMain.handle('task:end', (_e, wcId) => {
+  const wc = allWebContents.fromId(wcId);
+  if (wc && wc.getType() === 'webview') wc.forcefullyCrashRenderer();
+});
+ipcMain.handle('app:quit', () => app.quit());
+ipcMain.handle('window:set-title', (e, name) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w) return;
+  const base = w.__incognito ? 'متصفح العالمي (تصفح متخفي)' : 'متصفح العالمي';
+  const n = typeof name === 'string' ? name.trim().slice(0, 60) : '';
+  w.setTitle(n ? `${n} - ${base}` : base);
+});
 
 ipcMain.handle('page:save', (_e, wcId) => {
   const wc = allWebContents.fromId(wcId);
@@ -858,7 +975,7 @@ function urlFromArgs(argv) {
   return null;
 }
 app.on('second-instance', (_e, argv) => {
-  if (!win) return;
+  if (!win) { createWindow({ url: urlFromArgs(argv) }); return; }
   if (win.isMinimized()) win.restore();
   win.focus();
   const url = urlFromArgs(argv);

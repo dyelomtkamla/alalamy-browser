@@ -3,7 +3,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const invoke = (ch) => (...args) => ipcRenderer.invoke(ch, ...args);
-const listeners = ['open-tab', 'shortcut', 'pw:prompt', 'downloads:update', 'translate-selection', 'select-tab-wc', 'close-tab-wc', 'window:state', 'video:open'];
+const listeners = ['open-tab', 'shortcut', 'pw:prompt', 'downloads:update', 'translate-selection', 'select-tab-wc', 'close-tab-wc', 'window:state', 'video:open', 'clients:changed'];
 
 // شريط أزرار إضافات كروم <browser-action-list>
 try { require('electron-chrome-extensions/browser-action').injectBrowserAction(); } catch (err) { console.error(err); }
@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('api', {
   searchURL: invoke('search-url'),
   saveProfiles: invoke('profiles:save'),
   clearProfileData: invoke('profiles:clear-data'),
+  saveClients: invoke('clients:save'),
+  removeClient: invoke('clients:remove'),
   topSites: invoke('topsites'),
   historyHosts: invoke('history:hosts'),
   getNews: invoke('news:get'),

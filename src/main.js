@@ -68,6 +68,8 @@ function loadStore() {
   store.profiles = readJSON('profiles.json', [
     { id: 'default', name: 'الحساب الرئيسي', color: '#1a73e8', partition: 'persist:default' }
   ]);
+  // العملاء: كل عميل له جلسة مستقلة persist:c_<id> (فيسبوك وانستا وتيك توك... مسجلين لكل عميل لوحده)
+  store.clients = readJSON('clients.json', []);
   store.history = readJSON('history.json', []);
   store.bookmarks = readJSON('bookmarks.json', [
     { id: 'b1', title: 'Gmail', url: 'https://mail.google.com/' },
@@ -84,6 +86,7 @@ function loadStore() {
 // ---------- مانع الإعلانات (قوايم uBlock Origin و EasyList) موجود في adblock.js ----------
 
 // ---------- إعداد كل جلسة (كل حساب له جلسة معزولة بالكامل: كوكيز، تخزين، كاش) ----------
+const PARTITION_RE = /^(persist:(default|p_[a-z0-9]+|c_[a-z0-9]+)|temp_[a-z0-9]+)$/;
 const configured = new Map(); // partition -> session
 function setupSession(partition) {
   if (configured.has(partition)) return configured.get(partition);
@@ -229,7 +232,7 @@ function setupWindow(win, incognito) {
     webPreferences.contextIsolation = true;
     webPreferences.sandbox = false;
     const partition = params.partition || 'persist:default';
-    if (!/^(persist:(default|p_[a-z0-9]+)|temp_[a-z0-9]+)$/.test(partition)) params.partition = 'persist:default';
+    if (!PARTITION_RE.test(partition)) params.partition = 'persist:default';
     setupSession(params.partition);
   });
 
@@ -263,6 +266,7 @@ function handleShortcut(e, input) {
   else if (ctrl && input.shift && k === 'n') action = 'new-incognito-window';
   else if (ctrl && !input.shift && k === 'n') action = 'new-window';
   else if (ctrl && input.shift && k === 'a') action = 'search-tabs';
+  else if (ctrl && input.shift && k === 'm') action = 'clients';
   else if (input.shift && !ctrl && k === 'escape') action = 'task-manager';
   else if (ctrl && input.shift && k === 'b') action = 'toggle-bookmarks-bar';
   else if (ctrl && input.shift && k === 'delete') action = 'show-history';
@@ -501,6 +505,7 @@ ipcMain.handle('init', (e) => {
   if (w) w.__restored = true;
   return {
   profiles: store.profiles,
+  clients: store.clients,
   bookmarks: store.bookmarks,
   settings: store.settings,
   session: first && store.settings.restoreTabs ? store.session : null,
@@ -544,7 +549,7 @@ ipcMain.handle('settings:choose-download-dir', async () => {
 });
 ipcMain.handle('app:relaunch', () => { app.relaunch(); app.exit(0); });
 // ---------- تحميل الفيديوهات والصوت ----------
-const validPartition = (p) => typeof p === 'string' && /^(persist:(default|p_[a-z0-9]+)|temp_[a-z0-9]+)$/.test(p) ? p : 'persist:default';
+const validPartition = (p) => typeof p === 'string' && PARTITION_RE.test(p) ? p : 'persist:default';
 ipcMain.handle('video:probe', async (_e, { url, partition }) => {
   if (!/^https?:\/\//i.test(url || '')) return { error: 'الرابط مش صالح' };
   downloader.autoUpdate();
@@ -640,6 +645,35 @@ ipcMain.handle('profiles:save', (_e, profiles) => {
     store.profiles.unshift({ id: 'default', name: 'الحساب الرئيسي', color: '#1a73e8', partition: 'persist:default' });
   writeJSON('profiles.json', store.profiles);
   return store.profiles;
+});
+
+// ---------- العملاء ----------
+const CLIENT_SITES = ['facebook', 'instagram', 'tiktok', 'snapchat', 'google', 'x', 'business', 'youtube', 'linkedin', 'threads'];
+function cleanClient(c) {
+  return { id: c.id, name: String(c.name || '').trim().slice(0, 40) || 'عميل', color: /^#[0-9a-f]{6}$/i.test(c.color) ? c.color : '#1a73e8',
+    partition: 'persist:' + c.id, sites: Array.isArray(c.sites) ? c.sites.filter(x => CLIENT_SITES.includes(x)) : [], created: Number(c.created) || Date.now() };
+}
+function broadcastClients() {
+  for (const w of windows) if (!w.isDestroyed()) w.webContents.send('clients:changed', store.clients);
+}
+ipcMain.handle('clients:save', (_e, list) => {
+  if (!Array.isArray(list)) return store.clients;
+  const seen = new Set();
+  store.clients = list.filter(c => c && /^c_[a-z0-9]{4,20}$/.test(c.id) && !seen.has(c.id) && seen.add(c.id)).slice(0, 500).map(cleanClient);
+  writeJSON('clients.json', store.clients, true);
+  broadcastClients();
+  return store.clients;
+});
+ipcMain.handle('clients:remove', async (_e, id) => {
+  const c = store.clients.find(x => x.id === id);
+  if (!c) return store.clients;
+  store.clients = store.clients.filter(x => x !== c);
+  writeJSON('clients.json', store.clients, true);
+  try { const ses = session.fromPartition(c.partition); await ses.clearStorageData(); await ses.clearCache(); } catch { /* ignore */ }
+  store.passwords = store.passwords.filter(p => p.partition !== c.partition);
+  writeJSON('passwords.json', store.passwords);
+  broadcastClients();
+  return store.clients;
 });
 
 ipcMain.handle('profiles:clear-data', async (_e, partition) => {

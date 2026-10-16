@@ -8,6 +8,7 @@
 </head>
 <body>
   <div id="tabbar">
+    <button id="clientChip" class="hidden" title="العملاء"></button>
     <button id="tabListBtn" class="icon" data-icon="list" title="كل التبويبات"></button>
     <span id="winName" class="hidden"></span>
     <div id="tabs"></div>
@@ -120,6 +121,8 @@
     <button data-act="new-tab"><i data-icon="newtab"></i>علامة تبويب جديدة <kbd>Ctrl+T</kbd></button>
     <button data-act="new-window"><i data-icon="newwin"></i>نافذة جديدة <kbd>Ctrl+N</kbd></button>
     <button data-act="new-incognito-window"><i data-icon="incognito"></i>نافذة جديدة للتصفح المتخفي <kbd>Ctrl+Shift+N</kbd></button>
+    <button data-act="clients"><i data-icon="person"></i>العملاء (التبديل بين حسابات العملاء) <kbd>Ctrl+Shift+M</kbd></button>
+    <button data-act="new-client"><i data-icon="plus"></i>إضافة عميل جديد</button>
     <hr>
     <button data-act="show-passwords"><i data-icon="key"></i>كلمات المرور وميزة "الملء التلقائي"</button>
     <button data-sub="history"><i data-icon="history"></i>السجل</button>
@@ -213,6 +216,7 @@
   <div id="toast" class="hidden"></div>
   <script src="icons.js"></script>
   <script src="renderer.js"></script>
+  <script src="clients.js"></script>
   <script src="newtab.js"></script>
   <script src="features.js"></script>
   <script src="settings.js"></script>

@@ -40,6 +40,16 @@ jobs:
       - name: Build app
         run: npx electron-builder --win dir --x64
 
+      # يشغّل البرنامج بعد التجميع ويتأكد إنه بيفتح (علشان منطلعش نسخة بتقع زي 1.8.1)
+      - name: Smoke test packaged app
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem dist\win-unpacked -Filter *.exe | Where-Object { $_.Name -notmatch 'Uninstall|crashpad' } | Select-Object -First 1
+          $p = Start-Process -FilePath $exe.FullName -ArgumentList "--smoke-test" -PassThru -RedirectStandardOutput smoke.txt -RedirectStandardError smoke-err.txt
+          if (-not $p.WaitForExit(180000)) { $p.Kill(); Get-Content smoke.txt, smoke-err.txt; Write-Error "smoke test timed out"; exit 1 }
+          Get-Content smoke.txt | Select-String SMOKE_RESULT
+          if ($p.ExitCode -ne 0) { Get-Content smoke.txt, smoke-err.txt | Select-Object -Last 40; Write-Error "smoke test failed ($($p.ExitCode))"; exit 1 }
+
       - name: Build installer
         shell: pwsh
         run: |

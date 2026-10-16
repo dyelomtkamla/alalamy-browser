@@ -10,7 +10,11 @@ const { app, ipcMain, net } = require('electron');
 const { ElectronBlocker, adsAndTrackingLists } = require('@ghostery/adblocker-electron');
 const { parse: parseDomain } = require('tldts-experimental');
 
-const PRELOAD = require.resolve('@ghostery/adblocker-electron-preload');
+// المكتبة ممكن تتحط جوه node_modules بتاعة adblocker-electron وقت البناء، فبندور في المكانين
+const PRELOAD = (() => {
+  try { return require.resolve('@ghostery/adblocker-electron-preload'); } catch {}
+  return require.resolve('@ghostery/adblocker-electron-preload', { paths: [path.dirname(require.resolve('@ghostery/adblocker-electron/package.json'))] });
+})();
 const BUNDLED = path.join(__dirname, 'adblock-engine.bin');
 const LISTS = [...adsAndTrackingLists, 'https://raw.githubusercontent.com/easylist/listear/master/Liste_AR.txt'];
 const UPDATE_EVERY = 3 * 24 * 3600 * 1000;

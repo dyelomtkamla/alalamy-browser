@@ -75,16 +75,69 @@ function renderClientChip() {
   chip.append(el('span', { class: 'dot', style: c ? `background:${c.color}` : '' }), el('span', { class: 'nm' }, c ? c.name : 'العملاء'));
   chip.title = c ? `العميل الحالي: ${c.name} — اضغط للتبديل (Ctrl+Shift+M)` : 'العملاء: افتح حسابات كل عميل لوحده وبدّل بينهم (Ctrl+Shift+M)';
   chip.classList.toggle('on', !!c);
+  refreshProfileBtn();
   document.body.classList.toggle('client-mode', !!c);
   document.body.style.setProperty('--client', c ? c.color : 'transparent');
 }
 
-function showClientMenu() {
+// زرار الحساب زي كروم: الإيميل الرئيسي (حساب جوجل المسجل) وتحته العملاء
+const ADD_GOOGLE = 'https://accounts.google.com/AddSession?continue=' + encodeURIComponent('https://www.google.com/');
+function accountCard() {
+  const c = currentClient();
+  const card = el('div', { class: 'acard' }, el('div', { class: 'awho' }, 'جاري التحقق من حساب جوجل...'));
+  api.googleAccounts(c ? c.partition : 'persist:default').then((list) => {
+    card.innerHTML = '';
+    const owner = c ? `حساب جوجل للعميل «${c.name}»` : 'الإيميل الرئيسي';
+    if (!list || !list.length) {
+      card.append(el('div', { class: 'aavatar empty' }, el('span', { class: 'ph2' })),
+        el('div', { class: 'aname' }, owner),
+        el('div', { class: 'amail' }, 'مش مسجل دخول بحساب جوجل'),
+        el('button', { class: 'primary aadd', onclick: () => { hidePopups(); createTab({ url: ADD_GOOGLE, clientId: state.client }); } }, c ? 'إضافة إيميل العميل' : 'إضافة الإيميل الرئيسي'));
+      return;
+    }
+    const a = list[0];
+    const av = el('div', { class: 'aavatar', style: `background:${c ? c.color : 'var(--accent)'}` }, (a.name || a.email).trim().charAt(0).toUpperCase());
+    if (a.photo) { const img = el('img', { src: a.photo, alt: '' }); img.onerror = () => img.remove(); av.append(img); }
+    card.append(el('div', { class: 'aowner' }, owner), av, el('div', { class: 'aname' }, a.name || ''), el('div', { class: 'amail', dir: 'ltr' }, a.email),
+      el('div', { class: 'abtns' },
+        el('button', { class: 'pill', onclick: () => { hidePopups(); createTab({ url: 'https://myaccount.google.com/?authuser=' + encodeURIComponent(a.email), clientId: state.client }); } }, 'إدارة حسابك على Google'),
+        el('button', { class: 'pill', onclick: () => { hidePopups(); createTab({ url: ADD_GOOGLE, clientId: state.client }); } }, '+ إيميل تاني')));
+    for (const o of list.slice(1, 4)) card.append(el('div', { class: 'aother', dir: 'ltr' }, o.email));
+    renderProfileBtn(a);
+  }).catch(() => { card.innerHTML = ''; card.append(el('button', { class: 'primary aadd', onclick: () => { hidePopups(); createTab({ url: ADD_GOOGLE, clientId: state.client }); } }, 'إضافة الإيميل الرئيسي')); });
+  return card;
+}
+function renderProfileBtn(acc) {
+  const b = $('#profileBtn');
+  if (!b) return;
+  b.classList.toggle('hidden', INCOGNITO_WIN);
+  const c = currentClient();
+  b.innerHTML = '';
+  if (acc && acc.photo) {
+    const img = el('img', { src: acc.photo, alt: '' });
+    img.onerror = () => renderProfileBtn(null);
+    b.append(img);
+  } else if (c || acc) {
+    b.append(el('span', { class: 'pletter', style: `background:${c ? c.color : 'var(--accent)'}` }, ((c && c.name) || acc.name || acc.email || '؟').trim().charAt(0).toUpperCase()));
+  } else b.innerHTML = icon('person-circle');
+  b.title = (c ? `العميل: ${c.name}` : 'حسابك') + (acc ? ` — ${acc.email}` : ' — إضافة الإيميل الرئيسي');
+}
+let profileBtnTimer = 0;
+function refreshProfileBtn() {
+  clearTimeout(profileBtnTimer);
+  profileBtnTimer = setTimeout(async () => {
+    const c = currentClient();
+    try { renderProfileBtn(((await api.googleAccounts(c ? c.partition : 'persist:default')) || [])[0] || null); } catch { renderProfileBtn(null); }
+  }, 300);
+}
+
+function showClientMenu(fromProfile = false) {
   hidePopups();
   if (INCOGNITO_WIN) return;
   const m = $('#profileMenu');
   m.innerHTML = '';
   m.classList.add('client-menu');
+  if (fromProfile) m.append(accountCard(), el('hr'));
   const row = (c) => {
     const id = c ? c.id : null;
     const n = clientTabs(id).length;
@@ -106,9 +159,9 @@ function showClientMenu() {
   m.append(el('hr'), el('button', { onclick: () => { hidePopups(); openClientDialog(); } }, el('b', {}, '+'), ' إضافة عميل جديد'));
   const c = currentClient();
   if (c) m.append(el('button', { onclick: () => { hidePopups(); openClientSites(c); } }, '↗ فتح كل مواقع ', el('bdi', {}, c.name)));
-  const r = $('#clientChip').getBoundingClientRect();
-  m.style.width = '300px';
-  placePopup(m, r.right - 300, r.bottom + 4);
+  const r = (fromProfile ? $('#profileBtn') : $('#clientChip')).getBoundingClientRect();
+  m.style.width = '320px';
+  placePopup(m, fromProfile ? r.left : r.right - 320, r.bottom + 4);
 }
 
 // نافذة إضافة / تعديل عميل
@@ -200,9 +253,13 @@ api.on('clients:changed', (list) => {
   renderClientChip();
 });
 
+$('#profileBtn').addEventListener('click', (e) => { e.stopPropagation(); if ($('#profileMenu').classList.contains('client-menu') && !$('#profileMenu').classList.contains('hidden')) hidePopups(); else showClientMenu(true); });
+// بعد تسجيل الدخول في جوجل، الصورة والإيميل يتحدثوا
+window.addEventListener('focus', refreshProfileBtn);
 $('#clientChip').addEventListener('click', (e) => { e.stopPropagation(); if ($('#profileMenu').classList.contains('client-menu') && !$('#profileMenu').classList.contains('hidden')) hidePopups(); else showClientMenu(); });
 Object.assign(commands, {
   'clients': () => showClientMenu(),
+  'profile': () => showClientMenu(true),
   'new-client': () => openClientDialog()
 });
 const _hidePopups = hidePopups;

@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('api', {
   clearProfileData: invoke('profiles:clear-data'),
   saveClients: invoke('clients:save'),
   removeClient: invoke('clients:remove'),
+  googleAccounts: invoke('google:accounts'),
   topSites: invoke('topsites'),
   historyHosts: invoke('history:hosts'),
   getNews: invoke('news:get'),

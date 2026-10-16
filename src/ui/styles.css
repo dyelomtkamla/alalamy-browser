@@ -497,3 +497,20 @@ body.client-mode #toolbar { box-shadow: inset 0 2px 0 var(--client); }
 #clientDialog .cbtns .primary { padding: 8px 18px; }
 #clientDialog .cdel { margin-inline-start: auto; color: var(--danger); padding: 6px 10px; border-radius: 6px; }
 #clientDialog .cdel:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+/* زرار الحساب زي كروم */
+#profileBtn { display: flex; align-items: center; justify-content: center; padding: 0; overflow: hidden; }
+#profileBtn img { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
+#profileBtn .pletter { width: 24px; height: 24px; border-radius: 50%; color: #fff; font-weight: 700; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+.client-menu .acard { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 16px 8px; text-align: center; }
+.client-menu .aowner { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.client-menu .aavatar { position: relative; width: 64px; height: 64px; border-radius: 50%; color: #fff; font-size: 28px; font-weight: 700; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.client-menu .aavatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.client-menu .aavatar.empty { background: var(--input); }
+.client-menu .aavatar .ph2 { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--muted); }
+.client-menu .aname { font-weight: 700; font-size: 15px; }
+.client-menu .amail { color: var(--muted); font-size: 12px; }
+.client-menu .aother { color: var(--muted); font-size: 12px; }
+.client-menu .awho { color: var(--muted); padding: 12px 0; }
+.client-menu .abtns { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; justify-content: center; }
+.client-menu .abtns button, .client-menu .aadd { width: auto; display: inline-flex; padding: 6px 14px; }
+.client-menu .aadd { margin-top: 8px; border-radius: 18px; }

@@ -676,6 +676,38 @@ ipcMain.handle('clients:remove', async (_e, id) => {
   return store.clients;
 });
 
+// حساب جوجل المسجل في جلسة (للإيميل الرئيسي في زرار الحساب زي كروم)
+function parseGoogleAccounts(text) {
+  const out = [];
+  try {
+    const data = JSON.parse(text.slice(text.indexOf('[')));
+    for (const e of (Array.isArray(data[1]) ? data[1] : [])) {
+      if (Array.isArray(e) && typeof e[3] === 'string' && e[3].includes('@'))
+        out.push({ name: String(e[2] || ''), email: e[3], photo: /^https:\/\/[^"]+$/.test(e[4] || '') ? e[4] : '' });
+    }
+  } catch { /* ignore */ }
+  return out;
+}
+ipcMain.handle('google:accounts', async (_e, partition) => {
+  const p = validPartition(partition);
+  if (p.startsWith('temp_')) return [];
+  const ses = setupSession(p);
+  const cookies = await ses.cookies.get({ url: 'https://accounts.google.com/' }).catch(() => []);
+  if (!cookies.some(c => /^(SID|__Secure-1PSID|__Secure-3PSID|LSID)$/.test(c.name))) return [];
+  return new Promise((resolve) => {
+    const req = net.request({ url: process.env.ALALAMY_GOOGLE_ACCOUNTS_URL || 'https://accounts.google.com/ListAccounts?gpsia=1&source=ChromiumBrowser&json=standard', session: ses, useSessionCookies: true, method: 'GET' });
+    req.setHeader('User-Agent', cleanUA);
+    let body = '';
+    const timer = setTimeout(() => { try { req.abort(); } catch {} resolve([]); }, 8000);
+    req.on('response', (res) => {
+      res.on('data', (d) => { body += d; });
+      res.on('end', () => { clearTimeout(timer); resolve(parseGoogleAccounts(body)); });
+    });
+    req.on('error', () => { clearTimeout(timer); resolve([]); });
+    req.end();
+  });
+});
+
 ipcMain.handle('profiles:clear-data', async (_e, partition) => {
   if (typeof partition !== 'string') return false;
   const ses = setupSession(partition);

@@ -47,7 +47,7 @@ jobs:
           "VERSION=$version" >> $env:GITHUB_ENV
           $nsis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
           if (-not (Test-Path $nsis)) { choco install nsis -y --no-progress }
-          & $nsis "/DVERSION=$version" "/DSRCDIR=..\dist\win-unpacked" "/DOUTFILE=..\dist\AlalamyBrowser-Setup.exe" build\installer.nsi
+          & $nsis /INPUTCHARSET UTF8 "/DVERSION=$version" "/DSRCDIR=..\dist\win-unpacked" "/DOUTFILE=..\dist\AlalamyBrowser-Setup.exe" build\installer.nsi
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Compress-Archive dist\AlalamyBrowser-Setup.exe dist\AlalamyBrowser-Setup.zip
 

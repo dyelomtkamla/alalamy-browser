@@ -1,4 +1,4 @@
-; برنامج تثبيت متصفح العالمي
+﻿; برنامج تثبيت متصفح العالمي
 Unicode true
 SetCompressor /SOLID lzma
 !include "MUI2.nsh"

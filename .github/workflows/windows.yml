@@ -1,0 +1,64 @@
+name: Windows installer
+
+on:
+  push:
+    branches: [main]
+    paths: ['package.json', 'src/**', 'build/**', '.github/workflows/windows.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download yt-dlp, ffmpeg and deno
+        shell: pwsh
+        run: |
+          $v = "vendor/win"; New-Item -ItemType Directory -Force $v | Out-Null
+          Invoke-WebRequest https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe -OutFile "$v/yt-dlp.exe"
+          Invoke-WebRequest https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip -OutFile ff.zip
+          Expand-Archive ff.zip ff
+          $bin = Get-ChildItem ff -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          Copy-Item $bin.FullName, (Join-Path $bin.DirectoryName ffprobe.exe) $v
+          $lic = Get-ChildItem ff -Recurse -Filter LICENSE | Select-Object -First 1
+          if ($lic) { Copy-Item $lic.FullName "$v/LICENSE-ffmpeg.txt" }
+          Invoke-WebRequest https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip -OutFile deno.zip
+          Expand-Archive deno.zip $v
+          Get-ChildItem $v
+
+      - name: Build app
+        run: npx electron-builder --win dir --x64
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          "VERSION=$version" >> $env:GITHUB_ENV
+          $nsis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          if (-not (Test-Path $nsis)) { choco install nsis -y --no-progress }
+          & $nsis "/DVERSION=$version" "/DSRCDIR=..\dist\win-unpacked" "/DOUTFILE=..\dist\AlalamyBrowser-Setup.exe" build\installer.nsi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Compress-Archive dist\AlalamyBrowser-Setup.exe dist\AlalamyBrowser-Setup.zip
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v$VERSION"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/AlalamyBrowser-Setup.zip --clobber
+          else
+            gh release create "$tag" dist/AlalamyBrowser-Setup.zip --title "متصفح العالمي $VERSION" --notes "نسخة ويندوز $VERSION" --latest
+          fi

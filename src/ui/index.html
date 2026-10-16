@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src * data: crx:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>متصفح العالمي</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="tabbar">
+    <button id="tabListBtn" class="icon" data-icon="list" title="كل التبويبات"></button>
+    <div id="tabs"></div>
+    <button id="newTabBtn" class="icon" data-icon="plus" title="تبويب جديد (Ctrl+T)"></button>
+    <div id="dragSpace"></div>
+    <div id="winControls">
+      <button id="winMin" title="تصغير"><svg viewBox="0 0 10 10"><path d="M0 5h10" /></svg></button>
+      <button id="winMax" title="تكبير"><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9" /></svg></button>
+      <button id="winClose" title="إغلاق"><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" /></svg></button>
+    </div>
+  </div>
+
+  <div id="toolbar">
+    <button id="backBtn" class="icon" data-icon="back" title="رجوع (Alt+←)"></button>
+    <button id="fwdBtn" class="icon" data-icon="forward" title="تقدم"></button>
+    <button id="reloadBtn" class="icon" data-icon="reload" title="إعادة تحميل (F5)"></button>
+    <button id="homeBtn" class="icon" data-icon="home" title="الصفحة الرئيسية"></button>
+    <div id="addressWrap">
+      <span id="secureIcon" title=""></span>
+      <input id="address" dir="auto" spellcheck="false" autocomplete="off" placeholder="ابحث في جوجل أو اكتب عنواناً">
+      <button id="readerBtn" class="icon small2" data-icon="reader" title="وضع القراءة (F9)"></button>
+      <button id="starBtn" class="icon small2" data-icon="star" title="إضافة إلى المفضلة (Ctrl+D)"></button>
+      <div id="suggestions" class="hidden"></div>
+    </div>
+    <button id="videoBtn" class="icon" data-icon="video" title="تحميل الفيديو أو الصوت MP3 من الصفحة"></button>
+    <button id="translateBtn" class="icon" data-icon="translate" title="ترجمة الصفحة"></button>
+    <browser-action-list id="extActions" partition="persist:default" alignment="bottom left"></browser-action-list>
+    <button id="extBtn" class="icon" data-icon="puzzle" title="الإضافات"></button>
+    <span id="adBadge" title="الإعلانات والمتتبعات المحظورة"><span data-icon="shield"></span><b>0</b></span>
+    <button id="incognitoBtn" class="icon" data-icon="incognito" title="تبويب تصفح خفي (Ctrl+Shift+N)"></button>
+    <button id="downloadsBtn" class="icon" title="التنزيلات (Ctrl+J)"><span data-icon="download"></span><i id="dlCount" class="hidden"></i></button>
+    <button id="menuBtn" class="icon" data-icon="dots" title="القائمة"></button>
+  </div>
+
+  <div id="bookmarksbar"></div>
+
+  <div id="pwbar" class="bar hidden">
+    <span id="pwText"></span>
+    <button id="pwSave" class="primary">حفظ</button>
+    <button id="pwNever">أبداً لهذا الموقع</button>
+    <button id="pwDismiss">ليس الآن</button>
+  </div>
+
+  <div id="trbar" class="bar hidden">
+    <span id="trText"></span>
+    <select id="trLang"></select>
+    <button id="trGo" class="primary">ترجمة</button>
+    <button id="trOrig">إظهار الأصل</button>
+    <button id="trClose" class="icon">✕</button>
+  </div>
+
+  <div id="findbar" class="bar hidden">
+    <input id="findInput" placeholder="بحث في الصفحة">
+    <span id="findCount"></span>
+    <button id="findPrev" class="icon">↑</button>
+    <button id="findNext" class="icon">↓</button>
+    <button id="findClose" class="icon">✕</button>
+  </div>
+
+  <div id="main">
+  <nav id="sidestrip"></nav>
+  <div id="sidepanel" class="hidden"><header><span id="spTitle"></span><button id="spOpen" class="icon small2" data-icon="external" title="افتح في تبويب"></button><button id="spClose" class="icon small2" data-icon="close" title="إغلاق"></button></header><div id="spBody"></div></div>
+  <div id="content">
+    <div id="reader" class="hidden"></div>
+    <div id="settingsPage" class="hidden">
+      <nav id="settingsSide">
+        <div class="shead"><img src="icon.png" alt=""><span>الإعدادات</span></div>
+        <div id="settingsNav"></div>
+      </nav>
+      <div id="settingsBody">
+        <div class="stop">
+          <input id="settingsSearch" type="search" placeholder="🔍 البحث في الإعدادات">
+          <button id="settingsClose" class="icon" data-icon="close" title="إغلاق الإعدادات"></button>
+        </div>
+        <div id="settingsMain"></div>
+      </div>
+    </div>
+    <div id="newtab" class="hidden">
+      <div class="ntGrid">
+      <aside id="ntNewsSide" class="ntSide"></aside>
+      <div class="ntCol">
+        <div id="ntIncognito" class="hidden">🕶 أنت في وضع التصفح الخفي: لن يُحفظ السجل ولا الكوكيز ولا كلمات المرور، وكل شيء يُحذف عند إغلاق التبويب.</div>
+        <div id="ntLogo" aria-label="Google"><span style="color:#4285f4">G</span><span style="color:#ea4335">o</span><span style="color:#fbbc05">o</span><span style="color:#4285f4">g</span><span style="color:#34a853">l</span><span style="color:#ea4335">e</span></div>
+        <form id="ntSearch">
+          <svg class="gIcon" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+          <input id="ntInput" dir="auto" autocomplete="off" spellcheck="false" placeholder="ابحث في Google أو اكتب عنوان URL">
+          <button type="button" id="ntMic" class="ntIco" title="البحث بالصوت"><svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg></button>
+          <button type="button" id="ntLens" class="ntIco" title="البحث بالصور (Google Lens)"><svg viewBox="0 0 24 24" class="stroke"><path d="M4 9V7a3 3 0 0 1 3-3h2M15 4h2a3 3 0 0 1 3 3v2M9 20H7a3 3 0 0 1-3-3v-2"/><circle cx="12" cy="12" r="3.2"/><circle cx="18" cy="18" r="1.6" class="fill"/></svg></button>
+        </form>
+        <div id="ntChips">
+          <button id="ntAI" type="button"><svg viewBox="0 0 24 24" class="stroke"><circle cx="10" cy="10" r="6"/><path d="M14.5 14.5L20 20"/><path d="M18 2.5l.8 1.7 1.7.8-1.7.8L18 7.5l-.8-1.7-1.7-.8 1.7-.8z" class="fill"/></svg><span>وضع AI</span></button>
+          <button id="ntIncog" type="button"><svg viewBox="0 0 24 24" class="stroke"><path d="M3 11h18M6.5 11L8 5.5c.2-.7 1-1 1.6-.7L12 6l2.4-1.2c.6-.3 1.4 0 1.6.7L17.5 11"/><circle cx="7.5" cy="16" r="2.6"/><circle cx="16.5" cy="16" r="2.6"/><path d="M10.1 16h3.8"/></svg><span>التصفح المتخفي</span></button>
+        </div>
+        <div id="ntSocial"></div>
+        <div id="speeddial"></div>
+        <div id="ntWork"></div>
+        <div id="ntSitesInline"></div>
+        <div id="ntFeed"></div>
+        <div id="ntCopyright">جميع الحقوق محفوظة © 2026 <bdi>Ahmed Gamal Elshafey</bdi></div>
+      </div>
+      <aside id="ntSportsSide" class="ntSide"></aside>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <div id="menu" class="popup hidden">
+    <button data-act="new-tab">تبويب جديد <kbd>Ctrl+T</kbd></button>
+    <button data-act="new-temp-tab">🕶 تبويب تصفح خفي <kbd>Ctrl+Shift+N</kbd></button>
+    <button data-act="sleep-all">تنويم التبويبات غير النشطة (توفير الذاكرة)</button>
+    <hr>
+    <button data-act="show-history">السجل <kbd>Ctrl+H</kbd></button>
+    <button data-act="show-bookmarks">المفضلة</button>
+    <button data-act="download-video">🎬 تحميل فيديو أو صوت MP3 من الصفحة</button>
+    <button data-act="reader">📖 وضع القراءة <kbd>F9</kbd></button>
+    <button data-act="pip">🖼 الفيديو في نافذة صغيرة</button>
+    <button data-act="screenshot">📸 لقطة شاشة للصفحة <kbd>Ctrl+Shift+S</kbd></button>
+    <button data-act="toggle-sidebar">💬 الشريط الجانبي (واتساب وماسنجر وتليجرام)</button>
+    <button data-act="show-downloads">التنزيلات <kbd>Ctrl+J</kbd></button>
+    <button data-act="show-passwords">كلمات المرور</button>
+    <button data-act="show-extensions">🧩 الإضافات</button>
+    <button data-act="open-webstore">🛒 سوق إضافات كروم</button>
+    <button data-act="show-translator">🌐 المترجم</button>
+    <hr>
+    <button data-act="find">بحث في الصفحة <kbd>Ctrl+F</kbd></button>
+    <button data-act="zoom-in">تكبير <kbd>Ctrl++</kbd></button>
+    <button data-act="zoom-out">تصغير <kbd>Ctrl+-</kbd></button>
+    <button data-act="print">طباعة <kbd>Ctrl+P</kbd></button>
+    <button data-act="save-page">حفظ الصفحة</button>
+    <button data-act="fullscreen">ملء الشاشة <kbd>F11</kbd></button>
+    <button data-act="devtools">أدوات المطور <kbd>F12</kbd></button>
+    <hr>
+    <button data-act="show-settings">الإعدادات</button>
+    <button data-act="show-about">حول متصفح العالمي</button>
+  </div>
+
+  <div id="profileMenu" class="popup hidden"></div>
+  <div id="translateMenu" class="popup hidden"></div>
+  <div id="videoMenu" class="popup hidden"></div>
+
+  <aside id="panel" class="hidden">
+    <header><h2 id="panelTitle"></h2><button id="panelClose" class="icon">✕</button></header>
+    <div id="panelBody"></div>
+  </aside>
+
+  <div id="toast" class="hidden"></div>
+  <script src="icons.js"></script>
+  <script src="renderer.js"></script>
+  <script src="newtab.js"></script>
+  <script src="features.js"></script>
+  <script src="settings.js"></script>
+  <script src="video.js"></script>
+  <script src="extras.js"></script>
+  <script src="context.js"></script>
+</body>
+</html>

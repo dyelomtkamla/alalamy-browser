@@ -1,0 +1,68 @@
+'use strict';
+// جسر آمن بين الواجهة والعملية الرئيسية
+const { contextBridge, ipcRenderer } = require('electron');
+
+const invoke = (ch) => (...args) => ipcRenderer.invoke(ch, ...args);
+const listeners = ['open-tab', 'shortcut', 'pw:prompt', 'downloads:update', 'translate-selection', 'select-tab-wc', 'close-tab-wc', 'window:state', 'video:open'];
+
+// شريط أزرار إضافات كروم <browser-action-list>
+try { require('electron-chrome-extensions/browser-action').injectBrowserAction(); } catch (err) { console.error(err); }
+
+contextBridge.exposeInMainWorld('api', {
+  init: invoke('init'),
+  searchURL: invoke('search-url'),
+  saveProfiles: invoke('profiles:save'),
+  clearProfileData: invoke('profiles:clear-data'),
+  topSites: invoke('topsites'),
+  historyHosts: invoke('history:hosts'),
+  getNews: invoke('news:get'),
+  addHistory: invoke('history:add'),
+  updateHistoryTitle: invoke('history:update-title'),
+  listHistory: invoke('history:list'),
+  suggest: invoke('history:suggest'),
+  removeHistory: invoke('history:remove'),
+  clearHistory: invoke('history:clear'),
+  saveBookmarks: invoke('bookmarks:save'),
+  respondPassword: invoke('pw:respond'),
+  listPasswords: invoke('pw:list'),
+  revealPassword: invoke('pw:reveal'),
+  removePassword: invoke('pw:remove'),
+  listDownloads: invoke('downloads:list'),
+  downloadAction: invoke('downloads:action'),
+  saveSettings: invoke('settings:save'),
+  probeVideo: invoke('video:probe'),
+  resolveVideo: invoke('video:resolve-tab'),
+  downloadVideo: invoke('video:download'),
+  videoTools: invoke('video:tools'),
+  updateVideoTool: invoke('video:update'),
+  resetSettings: invoke('settings:reset'),
+  chooseDownloadDir: invoke('settings:choose-download-dir'),
+  relaunch: invoke('app:relaunch'),
+  saveSession: invoke('session:save'),
+  stats: invoke('stats'),
+  adblockAllow: invoke('adblock:allow'),
+  adblockUpdate: invoke('adblock:update'),
+  uiMenu: invoke('ui:menu'),
+  readClipboard: invoke('clipboard:read'),
+  toggleFullscreen: invoke('window:fullscreen'),
+  winMinimize: invoke('window:minimize'),
+  winToggleMaximize: invoke('window:toggle-maximize'),
+  winClose: invoke('window:close'),
+  defaultBrowserStatus: invoke('default-browser:status'),
+  setDefaultBrowser: invoke('default-browser:set'),
+  savePage: invoke('page:save'),
+  screenshot: invoke('page:screenshot'),
+  showFile: invoke('page:show-file'),
+  listExtensions: invoke('ext:list'),
+  removeExtension: invoke('ext:remove'),
+  loadUnpackedExtension: invoke('ext:load-unpacked'),
+  webStoreURL: invoke('ext:store-url'),
+  tabActivated: invoke('tab:activated'),
+  translateText: invoke('translate:text'),
+  translateMany: invoke('translate:many'),
+  checkUpdates: invoke('update:check'),
+  on: (channel, fn) => {
+    if (listeners.includes(channel)) ipcRenderer.on(channel, (_e, data) => fn(data));
+  },
+  smokeTest: process.argv.includes('--smoke-test') || process.env.ALALAMY_SMOKE === '1'
+});

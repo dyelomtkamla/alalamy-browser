@@ -1,0 +1,77 @@
+{
+  "name": "alalamy-browser",
+  "productName": "متصفح العالمي",
+  "version": "1.7.3",
+  "description": "متصفح سطح مكتب مبني على Chromium بمميزات كروم وفايرفوكس وأوبرا ومانع إعلانات ليوتيوب والمواقع",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "adblock-lists": "node build/adblock-lists.js",
+    "predist": "node build/adblock-lists.js"
+  },
+  "author": "Ahmed Gamal Elshafey",
+  "license": "GPL-3.0",
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "resedit": "^3.1.0"
+  },
+  "build": {
+    "appId": "com.alalamy.browser",
+    "productName": "AlalamyBrowser",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false,
+      "extraResources": [
+        {
+          "from": "vendor/win",
+          "to": "vendor"
+        }
+      ]
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "متصفح العالمي",
+      "uninstallDisplayName": "متصفح العالمي",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "artifactName": "AlalamyBrowser-Setup-${version}.exe",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "afterPack": "build/after-pack.js",
+    "copyright": "© 2026 Ahmed Gamal Elshafey. جميع الحقوق محفوظة"
+  },
+  "dependencies": {
+    "electron-chrome-extensions": "4.9.0",
+    "electron-chrome-web-store": "0.13.0",
+    "@ghostery/adblocker-electron": "2.20.1"
+  }
+}

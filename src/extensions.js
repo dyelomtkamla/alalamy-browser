@@ -1,4 +1,6 @@
 'use strict';
+// إلكترون 36+ نقل دوال الإضافات لـ session.extensions
+const exts = (ses) => ses.extensions || ses;
 // دعم إضافات كروم: سوق إضافات كروم الرسمي + واجهات chrome.tabs/الأزرار/النوافذ المنبثقة لكل حساب
 const { app, session, dialog } = require('electron');
 const path = require('path');
@@ -29,8 +31,8 @@ function sessionsLoaded() { return [...byPartition.keys()].map(p => session.from
 // كل إضافة تُثبت في أي حساب تُحمّل تلقائياً في كل الحسابات المفتوحة
 async function propagate(ext) {
   for (const ses of sessionsLoaded()) {
-    if (!ses.getExtension(ext.id)) {
-      try { await ses.loadExtension(ext.path, { allowFileAccess: true }); } catch { /* ignore */ }
+    if (!exts(ses).getExtension(ext.id)) {
+      try { await exts(ses).loadExtension(ext.path, { allowFileAccess: true }); } catch { /* ignore */ }
     }
   }
 }
@@ -66,7 +68,7 @@ function setup(partition) {
   }).catch(err => console.error('webstore', err));
 
   for (const dir of unpackedList()) {
-    if (fs.existsSync(dir)) ses.loadExtension(dir, { allowFileAccess: true }).catch(() => {});
+    if (fs.existsSync(dir)) exts(ses).loadExtension(dir, { allowFileAccess: true }).catch(() => {});
   }
 }
 
@@ -94,7 +96,7 @@ function list() {
   const seen = new Map();
   const sessions = [session.fromPartition('persist:default'), ...sessionsLoaded()];
   for (const ses of sessions) {
-    for (const e of ses.getAllExtensions()) {
+    for (const e of exts(ses).getAllExtensions()) {
       if (seen.has(e.id)) continue;
       const m = e.manifest || {};
       let name = m.name || e.name;
@@ -121,7 +123,7 @@ function list() {
 async function remove(id) {
   const item = list().find(e => e.id === id);
   for (const ses of [session.fromPartition('persist:default'), ...sessionsLoaded()]) {
-    if (ses.getExtension(id)) try { ses.removeExtension(id); } catch { /* ignore */ }
+    if (exts(ses).getExtension(id)) try { exts(ses).removeExtension(id); } catch { /* ignore */ }
   }
   if (item && item.unpacked) {
     hooks.saveSettings({ unpackedExtensions: unpackedList().filter(p => p !== item.path) });
@@ -148,7 +150,7 @@ async function loadUnpacked(dir) {
   if (!listNow.includes(dir)) hooks.saveSettings({ unpackedExtensions: [...listNow, dir] });
   let loaded = null;
   for (const ses of [session.fromPartition('persist:default'), ...sessionsLoaded()]) {
-    try { loaded = await ses.loadExtension(dir, { allowFileAccess: true }); } catch (err) { if (!loaded) return { ok: false, error: String(err.message || err) }; }
+    try { loaded = await exts(ses).loadExtension(dir, { allowFileAccess: true }); } catch (err) { if (!loaded) return { ok: false, error: String(err.message || err) }; }
   }
   return { ok: true, name: loaded && loaded.name };
 }

@@ -225,6 +225,23 @@ function setupSession(partition) {
 }
 const activeDownloads = new Map();
 
+// كروميوم بيكتب الكوكيز على الهارد كل 30 ثانية بس؛ لو المتصفح اتقفل قبلها تسجيل الدخول بيضيع.
+// فبنكتبها بنفسنا بعد كل تنقل وقبل القفل وقبل التحديث
+function flushSessions() {
+  const jobs = [];
+  for (const [p, ses] of configured) {
+    if (!p.startsWith('persist:')) continue;
+    jobs.push(ses.cookies.flushStore().catch(() => {}));
+    try { ses.flushStorageData(); } catch { /* ignore */ }
+  }
+  return Promise.race([Promise.all(jobs), new Promise(r => setTimeout(r, 3000))]);
+}
+let flushTimer = null;
+function scheduleFlush() {
+  clearTimeout(flushTimer);
+  flushTimer = setTimeout(() => { flushSessions(); }, 2000);
+}
+
 function partitionOfWebContents(wc) {
   for (const [p, s] of configured) if (s === wc.session) return p;
   return null;
@@ -387,6 +404,8 @@ ipcMain.on('page:shortcut', (e, action) => {
 
 function setupGuest(guest) {
   guest.on('before-input-event', (e, input) => handleShortcut(e, input, guest));
+  // بعد كل تنقل (زي تسجيل الدخول في جيميل) نكتب الكوكيز على الهارد على طول
+  guest.on('did-navigate', () => scheduleFlush());
 
   // الروابط التي تفتح في نافذة جديدة تفتح كتبويب جديد بنفس الحساب
   guest.setWindowOpenHandler(({ url, disposition }) => {
@@ -641,7 +660,7 @@ ipcMain.handle('settings:choose-download-dir', async () => {
   if (!r.canceled && r.filePaths[0]) { store.settings.downloadDir = r.filePaths[0]; writeJSON('settings.json', store.settings); }
   return store.settings;
 });
-ipcMain.handle('app:relaunch', () => { app.relaunch(); app.exit(0); });
+ipcMain.handle('app:relaunch', async () => { await flushSessions(); app.relaunch(); app.exit(0); });
 // ---------- تحميل الفيديوهات والصوت ----------
 const validPartition = (p) => typeof p === 'string' && PARTITION_RE.test(p) ? p : 'persist:default';
 ipcMain.handle('video:probe', async (_e, { url, partition }) => {
@@ -1235,10 +1254,15 @@ app.whenReady().then(() => {
   }
 });
 
-app.on('before-quit', () => {
-  if (quitting) return;
-  quitting = true;
-  persistSession(true, true);
+let quitFlushed = false;
+app.on('before-quit', (e) => {
+  if (!quitting) { quitting = true; persistSession(true, true); }
+  if (quitFlushed || SMOKE_TEST) return;
+  // نستنى الكوكيز وبيانات المواقع تتكتب على الهارد الأول، وبعدين نقفل
+  e.preventDefault();
+  quitFlushed = true;
+  clearTimeout(flushTimer);
+  flushSessions().finally(() => app.quit());
 });
 app.on('window-all-closed', () => {
   for (const name of Object.keys(writeTimers)) {

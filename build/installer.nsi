@@ -55,9 +55,22 @@ Function EnsureSubdir
 FunctionEnd
 
 Section "Install"
-  ; إغلاق المتصفح لو كان مفتوحاً قبل التحديث
+  ; نستنى المتصفح يقفل لوحده (لحد 20 ثانية) علشان يلحق يحفظ تسجيلات الدخول والكوكيز،
+  ; وبعدها بس نقفله بالعافية لو لسه مفتوح
+  StrCpy $R9 0
+  wait_app:
+    nsExec::ExecToStack 'cmd /c tasklist /FI "IMAGENAME eq ${EXENAME}" /NH | find /I "${EXENAME}"'
+    Pop $R8
+    Pop $R7
+    StrCmp $R8 "0" 0 app_closed
+    IntOp $R9 $R9 + 1
+    IntCmp $R9 40 force_close
+    Sleep 500
+    Goto wait_app
+  force_close:
   nsExec::Exec 'taskkill /F /IM ${EXENAME}'
   Sleep 500
+  app_closed:
   SetOutPath "$INSTDIR"
   File /r "${SRCDIR}\*.*"
   File "icon.ico"

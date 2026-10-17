@@ -60,7 +60,10 @@ function siteAllowed(pageUrl) {
   return (settings().adAllow || []).some(d => h === d || h.endsWith('.' + d));
 }
 /** شغال على الصفحة دي ولا لأ (الإعداد عام + الموقع مش في قايمة المسموح). */
+// صفحات تسجيل الدخول بتاعة جوجل: مانع الإعلانات لو منع أي سكربت فيها (زي فحص الأمان) جوجل بترفض الدخول
+const LOGIN_PAGE = /^https:\/\/(accounts\.google\.[a-z.]+|accounts\.youtube\.com|myaccount\.google\.com|gds\.google\.com)\//;
 function activeFor(pageUrl) {
+  if (LOGIN_PAGE.test(pageUrl || '')) return false;
   return !!engine && settings().adblock !== false && /^https?:/.test(pageUrl || '') && !siteAllowed(pageUrl);
 }
 
@@ -87,7 +90,9 @@ function onBeforeRequest(details, cb) {
 }
 
 function attach(ses) {
-  ses.setPreloads([...ses.getPreloads().filter(p => p !== PRELOAD), PRELOAD]);
+  if (typeof ses.registerPreloadScript === 'function') {
+    if (!ses.getPreloadScripts().some(p => p.filePath === PRELOAD)) ses.registerPreloadScript({ type: 'frame', filePath: PRELOAD });
+  } else ses.setPreloads([...ses.getPreloads().filter(p => p !== PRELOAD), PRELOAD]);
   ses.webRequest.onHeadersReceived({ urls: ['<all_urls>'] }, (details, cb) => {
     if (!activeFor(pageUrlOf(details)) && details.resourceType !== 'mainFrame') return cb({});
     if (details.resourceType === 'mainFrame' && !activeFor(details.url)) return cb({});

@@ -152,7 +152,8 @@ const settingsSections = {
       radio('newtab', 'فتح صفحة «تبويب جديد»'),
       radio('restore', 'متابعة من حيث توقفت (ترجع التبويبات اللي كانت مفتوحة)'),
       radio('page', 'فتح صفحة معينة'),
-      el('div', { class: 'sindent' }, url))];
+      el('div', { class: 'sindent' }, url),
+      el('p', { class: 'note' }, 'في كل الأحوال الجلسة بتتحفظ أول بأول: لو المتصفح اتقفل أو الكهربا قطعت، افتحه واضغط Ctrl+Shift+T وكل النوافذ والتبويبات هترجع زي ما كانت.'))];
   },
   languages() {
     return [card(settingRow('ترجمة الصفحات إلى', 'اللغة اللي زرار 🌐 بيترجم ليها الصفحات.',

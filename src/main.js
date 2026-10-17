@@ -28,10 +28,16 @@ function readJSON(name, fallback) {
   catch { return fallback; }
 }
 const writeTimers = {};
-function writeJSON(name, value, immediate = false) {
+function writeJSON(name, value, immediate = false, durable = false) {
   const doWrite = () => {
     const file = path.join(dataDir(), name);
-    fs.writeFileSync(file + '.tmp', JSON.stringify(value, null, 1));
+    const data = JSON.stringify(value, null, durable ? 0 : 1);
+    if (durable) {
+      // الجلسة: نكتبها على الهارد فعلاً (fsync) علشان لو الكهربا قطعت الملف مايضيعش أو يبوظ
+      const fd = fs.openSync(file + '.tmp', 'w');
+      try { fs.writeSync(fd, data); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+      try { fs.copyFileSync(file, file + '.bak'); } catch { /* أول مرة */ }
+    } else fs.writeFileSync(file + '.tmp', data);
     fs.renameSync(file + '.tmp', file);
   };
   clearTimeout(writeTimers[name]);
@@ -80,7 +86,80 @@ function loadStore() {
   store.downloads = readJSON('downloads.json', []);
   store.settings = Object.assign(defaultSettings(), readJSON('settings.json', {}));
   nativeTheme.themeSource = store.settings.theme;
-  store.session = readJSON('session.json', null);
+  loadSessions();
+}
+
+/* ---------- الجلسة زي كروم ----------
+   كل النوافذ العادية بتتحفظ باستمرار في session.json (التبويبات بترتيبها، المثبت منها، تبويبات العملاء،
+   التبويب النشط، مكان ومقاس كل نافذة). لو المتصفح اتقفل فجأة (الكهربا قطعت) أو اتقفل عادي، أول ما يفتح
+   تاني Ctrl+Shift+T (أو زرار «استعادة») بيرجّع كل النوافذ والتبويبات زي ما كانت بالظبط. */
+const isMeaningful = (sess) => !!(sess && Array.isArray(sess.windows) &&
+  sess.windows.some(w => Array.isArray(w.tabs) && w.tabs.some(t => /^(https?|file):/i.test(t.url || ''))));
+function normalizeSession(s) {
+  if (!s || typeof s !== 'object') return null;
+  if (Array.isArray(s.windows)) return s;
+  if (Array.isArray(s.tabs)) return { v: 2, clean: true, time: 0, windows: [{ tabs: s.tabs, active: s.active || 0 }] }; // صيغة النسخ القديمة
+  return null;
+}
+const live = new Map(); // window id -> بيانات النافذة
+let lastSession = null, lastSessionUsed = false, crashed = false, quitting = false;
+const closedWindows = []; // النوافذ اللي اتقفلت (Ctrl+Shift+T بيرجعها)
+function loadSessions() {
+  const prev = normalizeSession(readJSON('session.json', null)) || normalizeSession(readJSON('session.json.bak', null));
+  if (isMeaningful(prev)) {
+    lastSession = prev;
+    crashed = prev.clean === false;
+    writeJSON('last-session.json', prev, true, true);
+  } else lastSession = normalizeSession(readJSON('last-session.json', null));
+  if (!isMeaningful(lastSession)) lastSession = null;
+  store.session = lastSession;
+}
+function windowSnapshot(w) {
+  const d = live.get(w.id);
+  if (!d) return null;
+  let bounds = d.bounds;
+  try { if (!w.isDestroyed() && !w.isMinimized() && !w.isMaximized() && !w.isFullScreen()) bounds = w.getBounds(); } catch { /* ignore */ }
+  let maximized = d.maximized;
+  try { if (!w.isDestroyed()) maximized = w.isMaximized(); } catch { /* ignore */ }
+  d.bounds = bounds; d.maximized = maximized;
+  return { ...d, bounds, maximized };
+}
+function sessionNow(clean = false) {
+  const wins = [...windows].filter(w => !w.__incognito && live.has(w.id)).map(windowSnapshot).filter(Boolean);
+  return { v: 2, clean, time: Date.now(), windows: wins };
+}
+let sessionWriteTimer = null;
+function persistSession(immediate = false, clean = false) {
+  clearTimeout(sessionWriteTimer);
+  const go = () => {
+    const s = sessionNow(clean);
+    // النافذة الأخيرة اتقفلت: نسيب آخر حالة محفوظة زي ما هي علشان تترجع المرة الجاية
+    if (!s.windows.length) return;
+    try { writeJSON('session.json', s, true, true); } catch { /* ignore */ }
+  };
+  if (immediate) go(); else sessionWriteTimer = setTimeout(go, 250);
+}
+function markSessionClean() {
+  clearTimeout(sessionWriteTimer);
+  try {
+    const s = normalizeSession(readJSON('session.json', null));
+    if (s) { s.clean = true; writeJSON('session.json', s, true, true); }
+  } catch { /* ignore */ }
+}
+// يفتح نوافذ جلسة محفوظة؛ أول نافذة تتحط في النافذة اللي طلبت الاستعادة
+function openSessionWindows(list, target) {
+  list = (list || []).filter(w => Array.isArray(w.tabs) && w.tabs.length);
+  list.forEach((d, i) => {
+    if (i === 0 && target && !target.isDestroyed()) { target.webContents.send('session:restore', { ...d, replaceEmpty: true }); return; }
+    createWindow({ restore: d });
+  });
+  return list.length;
+}
+function restoreLastSession(target) {
+  if (!lastSession || lastSessionUsed) return 0;
+  lastSessionUsed = true;
+  crashed = false;
+  return openSessionWindows(lastSession.windows, target);
 }
 
 // ---------- مانع الإعلانات (قوايم uBlock Origin و EasyList) موجود في adblock.js ----------
@@ -176,10 +255,17 @@ function openIncognito(url, { forceNew = false } = {}) {
   return createWindow({ incognito: true, url });
 }
 
-function createWindow({ incognito = false, url = null } = {}) {
+function onScreen(b) {
+  try {
+    const { screen } = require('electron');
+    return screen.getAllDisplays().some(d => { const a = d.workArea; return b.x < a.x + a.width - 60 && b.x + b.width > a.x + 60 && b.y >= a.y - 20 && b.y < a.y + a.height - 60; });
+  } catch { return true; }
+}
+function createWindow({ incognito = false, url = null, restore = null } = {}) {
   const saved = readJSON('window.json', { width: 1300, height: 850 });
   const bounds = { width: saved.width || 1300, height: saved.height || 850 };
-  if (!windows.size) Object.assign(bounds, saved);
+  if (restore && restore.bounds && restore.bounds.width > 300 && onScreen(restore.bounds)) Object.assign(bounds, restore.bounds);
+  else if (!windows.size) Object.assign(bounds, saved);
   else if (win && !win.isDestroyed()) { const b = win.getBounds(); bounds.x = b.x + 30; bounds.y = b.y + 30; }
   const w = new BrowserWindow({
     ...bounds,
@@ -205,6 +291,8 @@ function createWindow({ incognito = false, url = null } = {}) {
   });
   w.__incognito = incognito;
   w.__startUrl = url;
+  w.__restore = restore;
+  if (restore && restore.maximized && !SMOKE_TEST) w.maximize();
   windows.add(w);
   if (!incognito && !primaryWin) primaryWin = w;
   win = w;
@@ -240,9 +328,28 @@ function setupWindow(win, incognito) {
     setupGuest(guest);
     extensions.addTab(guest, partitionOfWebContents(guest));
   });
-  win.webContents.on('before-input-event', (e, input) => handleShortcut(e, input));
+  win.webContents.on('before-input-event', (e, input) => handleShortcut(e, input, win.webContents));
   const sendWinState = () => { if (!win.isDestroyed()) win.webContents.send('window:state', { maximized: win.isMaximized(), fullscreen: win.isFullScreen() }); };
   for (const ev of ['maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen']) win.on(ev, sendWinState);
+  if (!incognito) {
+    const touch = () => persistSession();
+    for (const ev of ['resize', 'move', 'maximize', 'unmaximize']) win.on(ev, touch);
+    // ويندوز بيقفل أو بيعمل تسجيل خروج: ده قفل طبيعي مش تعطّل
+    win.on('session-end', () => { quitting = true; persistSession(true, true); });
+    win.on('close', () => {
+      const snap = windowSnapshot(win);
+      const others = [...windows].filter(x => x !== win && !x.__incognito);
+      if (!quitting && others.length) {
+        // نافذة اتقفلت والباقي مفتوح: تتشال من الجلسة وتتحط في «المغلقة مؤخراً»
+        if (snap && snap.tabs && snap.tabs.some(t => /^(https?|file):/i.test(t.url || ''))) {
+          closedWindows.push({ ...snap, closedAt: Date.now() });
+          if (closedWindows.length > 10) closedWindows.shift();
+        }
+        live.delete(win.id);
+        persistSession(true);
+      }
+    });
+  }
   win.on('closed', () => {
     windows.delete(win);
     if (primaryWin === win) primaryWin = [...windows].find(x => !x.__incognito) || null;
@@ -256,54 +363,25 @@ function setupWindow(win, incognito) {
 }
 function setFocusedWin(w) { win = w; }
 
-// ---------- اختصارات لوحة المفاتيح (تعمل حتى والتركيز داخل الصفحة) ----------
-function handleShortcut(e, input) {
+// ---------- اختصارات لوحة المفاتيح زي كروم بالظبط (تعمل حتى والتركيز داخل الصفحة) ----------
+const { shortcutAction, PAGE_FIRST } = require('./shortcuts');
+function handleShortcut(e, input, wc) {
   if (input.type !== 'keyDown') return;
-  const ctrl = input.control || input.meta;
-  const k = input.key.toLowerCase();
-  let action = null;
-  if (ctrl && input.shift && k === 't') action = 'reopen-tab';
-  else if (ctrl && input.shift && k === 'n') action = 'new-incognito-window';
-  else if (ctrl && !input.shift && k === 'n') action = 'new-window';
-  else if (ctrl && input.shift && k === 'a') action = 'search-tabs';
-  else if (ctrl && input.shift && k === 'm') action = 'clients';
-  else if (input.shift && !ctrl && k === 'escape') action = 'task-manager';
-  else if (ctrl && input.shift && k === 'b') action = 'toggle-bookmarks-bar';
-  else if (ctrl && input.shift && k === 'delete') action = 'show-history';
-  else if (ctrl && input.shift && k === 's') action = 'screenshot';
-  else if (k === 'f9') action = 'reader';
-  else if (input.alt && input.shift && k === 'r') action = 'reader';
-  else if (ctrl && input.shift && k === 'i') action = 'devtools';
-  else if (ctrl && k === 'u') action = 'view-source';
-  else if (ctrl && k === 's') action = 'save-page';
-  else if (ctrl && k === 't') action = 'new-tab';
-  else if (ctrl && k === 'w') action = 'close-tab';
-  else if (ctrl && k === 'l') action = 'focus-address';
-  else if (ctrl && k === 'r') action = 'reload';
-  else if (ctrl && k === 'd') action = 'bookmark';
-  else if (ctrl && k === 'h') action = 'show-history';
-  else if (ctrl && k === 'j') action = 'show-downloads';
-  else if (ctrl && k === 'f') action = 'find';
-  else if (ctrl && k === 'p') action = 'print';
-  else if (ctrl && (k === '=' || k === '+')) action = 'zoom-in';
-  else if (ctrl && k === '-') action = 'zoom-out';
-  else if (ctrl && k === '0') action = 'zoom-reset';
-  else if (ctrl && k === 'tab') action = input.shift ? 'prev-tab' : 'next-tab';
-  else if (ctrl && /^[1-9]$/.test(k)) action = 'tab-' + k;
-  else if (k === 'f5') action = 'reload';
-  else if (k === 'f11') action = 'fullscreen';
-  else if (k === 'f12') action = 'devtools';
-  else if (input.alt && k === 'arrowleft') action = 'back';
-  else if (input.alt && k === 'arrowright') action = 'forward';
-  else if (k === 'escape') action = 'escape';
-  if (action) {
-    if (action !== 'escape') e.preventDefault();
-    sendTo(e.sender, 'shortcut', action);
-  }
+  const action = shortcutAction(input);
+  if (!action) return;
+  const guest = wc && !wc.isDestroyed() && wc.getType() === 'webview';
+  if (guest && PAGE_FIRST.has(action)) return; // الصفحة الأول
+  if (action === 'escape') { sendTo(wc, 'shortcut', action); return; }
+  e.preventDefault();
+  if (action === 'open-menu' && input.isAutoRepeat) return;
+  sendTo(wc, 'shortcut', action);
 }
+ipcMain.on('page:shortcut', (e, action) => {
+  if (typeof action === 'string' && PAGE_FIRST.has(action)) sendTo(e.sender, 'shortcut', action);
+});
 
 function setupGuest(guest) {
-  guest.on('before-input-event', (e, input) => handleShortcut(e, input));
+  guest.on('before-input-event', (e, input) => handleShortcut(e, input, guest));
 
   // الروابط التي تفتح في نافذة جديدة تفتح كتبويب جديد بنفس الحساب
   guest.setWindowOpenHandler(({ url, disposition }) => {
@@ -503,12 +581,23 @@ ipcMain.handle('init', (e) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   const first = w && w === primaryWin && !w.__restored;
   if (w) w.__restored = true;
+  let restore = (w && w.__restore) || null;
+  if (w) w.__restore = null;
+  // لو المستخدم مفعّل «استعادة التبويبات عند الفتح»: النافذة الأولى تاخد أول نافذة محفوظة والباقي يتفتح
+  if (first && store.settings.restoreTabs && lastSession && !lastSessionUsed && !SMOKE_TEST) {
+    lastSessionUsed = true;
+    const [one, ...rest] = lastSession.windows.filter(x => Array.isArray(x.tabs) && x.tabs.length);
+    restore = one || null;
+    setTimeout(() => rest.forEach(d => createWindow({ restore: d })), 300);
+  }
   return {
   profiles: store.profiles,
   clients: store.clients,
   bookmarks: store.bookmarks,
   settings: store.settings,
-  session: first && store.settings.restoreTabs ? store.session : null,
+  restore,
+  crashed: !!(first && crashed && !lastSessionUsed && !SMOKE_TEST),
+  canRestore: !!(lastSession && !lastSessionUsed),
   incognito: isIncognitoWin(w),
   primary: !!(w && w === primaryWin),
   downloads: store.downloads,
@@ -943,10 +1032,58 @@ ipcMain.handle('translate:many', async (_e, { texts, target, source }) => {
   catch (err) { return { ok: false, error: String(err.message || err) }; }
 });
 
+const cleanTab = (t) => ({
+  url: String(t.url || '').slice(0, 4000), title: String(t.title || '').slice(0, 300),
+  clientId: typeof t.clientId === 'string' && /^c_[a-z0-9]{4,20}$/.test(t.clientId) ? t.clientId : null,
+  pinned: !!t.pinned, muted: !!t.muted
+});
 ipcMain.handle('session:save', (e, s) => {
-  if (BrowserWindow.fromWebContents(e.sender) !== primaryWin) return; // النوافذ التانية والمتخفية مابتحفظش جلسة
-  store.session = s;
-  writeJSON('session.json', s);
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w || w.__incognito || !s || !Array.isArray(s.tabs)) return; // التصفح المتخفي مابيتحفظش
+  const prev = live.get(w.id) || {};
+  live.set(w.id, {
+    ...prev,
+    tabs: s.tabs.slice(0, 500).map(cleanTab),
+    active: Number(s.active) || 0,
+    client: typeof s.client === 'string' && /^c_[a-z0-9]{4,20}$/.test(s.client) ? s.client : null,
+    name: typeof s.name === 'string' ? s.name.slice(0, 60) : ''
+  });
+  persistSession();
+});
+// Ctrl+Shift+T زي كروم: آخر تبويب أو نافذة اتقفلت، ولو مفيش (بعد قفل المتصفح أو قطع الكهربا) ترجع الجلسة كلها
+ipcMain.handle('session:reopen', (e, { tabTime = 0, force = '' } = {}) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  const lastWin = closedWindows[closedWindows.length - 1];
+  if (force !== 'session' && lastWin && lastWin.closedAt > (tabTime || 0) && force !== 'tab') {
+    closedWindows.pop();
+    createWindow({ restore: lastWin });
+    return { done: 'window' };
+  }
+  if (tabTime && force !== 'session') return { done: 'tab' };
+  const n = restoreLastSession(w);
+  return n ? { done: 'session', windows: n } : { done: null };
+});
+ipcMain.handle('session:recent', () => ({
+  windows: closedWindows.slice().reverse().map((x, i) => ({ i: closedWindows.length - 1 - i, count: x.tabs.length, title: (x.tabs[x.active] || x.tabs[0] || {}).title || '', time: x.closedAt })),
+  canRestore: !!(lastSession && !lastSessionUsed),
+  lastCount: lastSession ? lastSession.windows.reduce((n, x) => n + ((x.tabs && x.tabs.length) || 0), 0) : 0
+}));
+ipcMain.handle('session:reopen-window', (_e, i) => {
+  const x = closedWindows[i];
+  if (!x) return false;
+  closedWindows.splice(i, 1);
+  createWindow({ restore: x });
+  return true;
+});
+ipcMain.handle('session:dismiss-crash', () => { crashed = false; });
+// تبويب يتنقل لنافذة جديدة (زي كروم)
+ipcMain.handle('tab:to-new-window', (_e, t) => { if (t && typeof t.url === 'string') createWindow({ restore: { tabs: [cleanTab(t)], active: 0, client: cleanTab(t).clientId } }); });
+// فتح ملف من الجهاز (Ctrl+O)
+ipcMain.handle('file:open', async (e) => {
+  const w = BrowserWindow.fromWebContents(e.sender) || win;
+  const r = await dialog.showOpenDialog(w, { properties: ['openFile'], filters: [{ name: 'صفحات وملفات', extensions: ['html', 'htm', 'pdf', 'svg', 'txt', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'mp3', 'json', 'xml'] }, { name: 'كل الملفات', extensions: ['*'] }] });
+  if (r.canceled || !r.filePaths[0]) return null;
+  return require('url').pathToFileURL(r.filePaths[0]).href;
 });
 
 // لقطة شاشة للجزء الظاهر من الصفحة: تتحفظ في التنزيلات وتتنسخ للحافظة
@@ -1093,11 +1230,17 @@ app.whenReady().then(() => {
   }
 });
 
+app.on('before-quit', () => {
+  if (quitting) return;
+  quitting = true;
+  persistSession(true, true);
+});
 app.on('window-all-closed', () => {
   for (const name of Object.keys(writeTimers)) {
     clearTimeout(writeTimers[name]);
   }
   writeJSON('history.json', store.history, true);
-  writeJSON('session.json', store.session, true);
+  // قفل عادي: الجلسة تفضل محفوظة (Ctrl+Shift+T يرجعها) ونعلّم إنها اتقفلت مظبوط
+  markSessionClean();
   app.quit();
 });

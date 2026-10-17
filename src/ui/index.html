@@ -46,6 +46,13 @@
 
   <div id="bookmarksbar"></div>
 
+  <div id="crashbar" class="bar hidden">
+    <span data-icon="reset"></span>
+    <span class="grow"><b>استعادة الصفحات؟</b> المتصفح ماتقفلش بشكل صحيح (ممكن الكهربا قطعت). تقدر ترجّع كل النوافذ والتبويبات زي ما كانت.</span>
+    <button id="crashRestore" class="primary">استعادة</button>
+    <button id="crashDismiss">لا شكراً</button>
+  </div>
+
   <div id="pwbar" class="bar hidden">
     <span id="pwText"></span>
     <button id="pwSave" class="primary">حفظ</button>
@@ -153,6 +160,7 @@
       <button data-act="show-history"><i data-icon="history"></i>السجل <kbd>Ctrl+H</kbd></button>
       <button data-act="reopen-tab"><i data-icon="reset"></i>إعادة فتح التبويب المغلق <kbd>Ctrl+Shift+T</kbd></button>
       <button data-act="search-tabs"><i data-icon="search"></i>البحث في التبويبات المفتوحة <kbd>Ctrl+Shift+A</kbd></button>
+      <div id="recentClosed"></div>
     </div>
     <div class="popup submenu hidden" data-menu="bookmarks">
       <button data-act="bookmark"><i data-icon="star"></i>إضافة إشارة مرجعية لعلامة التبويب هذه <kbd>Ctrl+D</kbd></button>
@@ -198,6 +206,7 @@
       <button data-act="sleep-all"><i data-icon="gauge"></i>تنويم التبويبات غير النشطة (توفير الذاكرة)</button>
     </div>
     <div class="popup submenu hidden" data-menu="help">
+      <button data-act="shortcuts-help"><i data-icon="keyboard"></i>اختصارات لوحة المفاتيح <kbd>Ctrl+/</kbd></button>
       <button data-act="show-about"><i data-icon="info"></i>حول متصفح العالمي</button>
       <button data-act="check-updates"><i data-icon="reset"></i>البحث عن تحديثات</button>
       <button data-act="help-center"><i data-icon="help"></i>مركز المساعدة</button>
@@ -225,5 +234,6 @@
   <script src="chromemenu.js"></script>
   <script src="extras.js"></script>
   <script src="context.js"></script>
+  <script src="session.js"></script>
 </body>
 </html>

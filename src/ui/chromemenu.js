@@ -109,11 +109,7 @@ const extraPanels = {
   namewin(body) {
     const input = el('input', { class: 'qrurl', value: state.windowName || '', placeholder: 'مثلاً: الشغل، المذاكرة، الإعلانات', dir: 'auto' });
     const save = async () => {
-      state.windowName = input.value.trim();
-      await api.setWindowTitle(state.windowName);
-      document.documentElement.dataset.winName = state.windowName;
-      $('#winName').textContent = state.windowName;
-      $('#winName').classList.toggle('hidden', !state.windowName);
+      await setWindowName(input.value.trim());
       closePanel(); toast(state.windowName ? 'تم تسمية النافذة' : 'تم مسح اسم النافذة');
     };
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
@@ -155,6 +151,14 @@ function safeWcId(t) { try { return t.webview.getWebContentsId(); } catch { retu
 Object.assign(panels, extraPanels);
 Object.assign(panelTitles, { qr: 'رمز الاستجابة السريعة (QR)', share: 'مشاركة الصفحة', tabsearch: 'البحث في التبويبات', namewin: 'تسمية النافذة', tasks: 'مدير المهام' });
 
+async function setWindowName(name) {
+  state.windowName = name || '';
+  await api.setWindowTitle(state.windowName);
+  document.documentElement.dataset.winName = state.windowName;
+  $('#winName').textContent = state.windowName;
+  $('#winName').classList.toggle('hidden', !state.windowName);
+  saveSession();
+}
 const activeWV = () => state.active && state.active.webview;
 Object.assign(commands, {
   'clear-data': () => openSettingsPage('privacy'),

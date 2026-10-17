@@ -3,7 +3,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const invoke = (ch) => (...args) => ipcRenderer.invoke(ch, ...args);
-const listeners = ['open-tab', 'shortcut', 'pw:prompt', 'downloads:update', 'translate-selection', 'select-tab-wc', 'close-tab-wc', 'window:state', 'video:open', 'clients:changed'];
+const listeners = ['open-tab', 'shortcut', 'pw:prompt', 'downloads:update', 'translate-selection', 'select-tab-wc', 'close-tab-wc', 'window:state', 'video:open', 'clients:changed', 'session:restore'];
 
 // شريط أزرار إضافات كروم <browser-action-list>
 try { require('electron-chrome-extensions/browser-action').injectBrowserAction(); } catch (err) { console.error(err); }
@@ -42,6 +42,12 @@ contextBridge.exposeInMainWorld('api', {
   chooseDownloadDir: invoke('settings:choose-download-dir'),
   relaunch: invoke('app:relaunch'),
   saveSession: invoke('session:save'),
+  reopenClosed: invoke('session:reopen'),
+  recentClosed: invoke('session:recent'),
+  reopenWindow: invoke('session:reopen-window'),
+  dismissCrash: invoke('session:dismiss-crash'),
+  tabToNewWindow: invoke('tab:to-new-window'),
+  openFile: invoke('file:open'),
   stats: invoke('stats'),
   adblockAllow: invoke('adblock:allow'),
   adblockUpdate: invoke('adblock:update'),

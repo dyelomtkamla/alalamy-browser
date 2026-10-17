@@ -300,3 +300,20 @@ if (/(^|\.)youtube\.com$/.test(location.hostname)) {
     if (document.documentElement) addCss(); else window.addEventListener('DOMContentLoaded', addCss);
   }
 }
+
+// ---------- اختصارات كروم اللي الصفحة ليها الأولوية فيها (Ctrl+F، Ctrl+S، Ctrl+U...) ----------
+// لو الصفحة نفسها ماستخدمتش الاختصار (preventDefault) المتصفح بينفذه، زي كروم بالظبط
+try {
+  const { shortcutAction, PAGE_FIRST } = require('./shortcuts');
+  window.addEventListener('keydown', (e) => {
+    if (!e.isTrusted) return;
+    const action = shortcutAction({ control: e.ctrlKey, meta: e.metaKey, shift: e.shiftKey, alt: e.altKey, key: e.key, code: e.code });
+    if (!action || !PAGE_FIRST.has(action)) return;
+    // نستنى لحد ما كل أكواد الصفحة تخلص
+    setTimeout(() => {
+      if (e.defaultPrevented) return;
+      if (action === 'open-menu' && e.repeat) return;
+      ipcRenderer.send('page:shortcut', action);
+    }, 0);
+  }, true);
+} catch { /* ignore */ }

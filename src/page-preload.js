@@ -4,6 +4,40 @@ const { ipcRenderer } = require('electron');
 
 const USER_KEY = '__alalamy_last_user';
 
+/* مفاتيح المرور (passkeys): المواقع زي جوجل بتطلبها «في الخلفية» علشان تظهر في قايمة الملء التلقائي،
+   والمتصفح مالوش القايمة دي فكانت بتطلع رسالة ويندوز «أدخل مفتاح الأمان» لوحدها كل شوية.
+   بنقول للمواقع إن الطريقة دي مش متاحة؛ مفتاح المرور بيشتغل عادي لو المستخدم اختاره بنفسه. */
+const NO_CONDITIONAL_PASSKEYS = `(() => {
+  try {
+    const PKC = window.PublicKeyCredential;
+    if (PKC) {
+      PKC.isConditionalMediationAvailable = () => Promise.resolve(false);
+      if (PKC.getClientCapabilities) {
+        const orig = PKC.getClientCapabilities.bind(PKC);
+        PKC.getClientCapabilities = () => orig().then(c => Object.assign({}, c, { conditionalGet: false, conditionalCreate: false }));
+      }
+    }
+    const cred = navigator.credentials;
+    if (cred && cred.get) {
+      const get = cred.get.bind(cred);
+      cred.get = function (opts) {
+        if (opts && opts.mediation === 'conditional' && opts.publicKey) {
+          return new Promise((_, reject) => {
+            const sig = opts.signal;
+            if (sig) sig.addEventListener('abort', () => reject(sig.reason || new DOMException('Aborted', 'AbortError')), { once: true });
+          });
+        }
+        return get(opts);
+      };
+    }
+  } catch (e) {}
+})();`;
+try {
+  const { contextBridge, webFrame } = require('electron');
+  if (contextBridge.executeInMainWorld) contextBridge.executeInMainWorld({ func: new Function(NO_CONDITIONAL_PASSKEYS) });
+  else webFrame.executeJavaScript(NO_CONDITIONAL_PASSKEYS);
+} catch { /* ignore */ }
+
 function visible(el) {
   const r = el.getBoundingClientRect();
   return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';

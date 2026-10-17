@@ -801,24 +801,40 @@ function parseGoogleAccounts(text) {
   } catch { /* ignore */ }
   return out;
 }
+// آخر حساب جوجل اتعرف لكل جلسة: بيفضل ظاهر بعد قفل المتصفح وفتحه حتى لو النت بطيء
+const googleCache = readJSON('google-accounts.json', {});
+function fetchGoogleAccounts(ses) {
+  return new Promise((resolve) => {
+    // جوجل بترجع 400 لو الطلب GET، كروم نفسه بيبعته POST بجسم فاضي
+    const req = net.request({ url: process.env.ALALAMY_GOOGLE_ACCOUNTS_URL || 'https://accounts.google.com/ListAccounts?gpsia=1&source=ChromiumBrowser&json=standard', session: ses, useSessionCookies: true, method: 'POST' });
+    req.setHeader('User-Agent', cleanUA);
+    req.setHeader('Content-Type', 'application/x-www-form-urlencoded');
+    let body = '';
+    const timer = setTimeout(() => { try { req.abort(); } catch {} resolve(null); }, 8000);
+    req.on('response', (res) => {
+      res.on('data', (d) => { body += d; });
+      res.on('end', () => { clearTimeout(timer); resolve(res.statusCode === 200 ? parseGoogleAccounts(body) : null); });
+    });
+    req.on('error', () => { clearTimeout(timer); resolve(null); });
+    req.end(' ');
+  });
+}
 ipcMain.handle('google:accounts', async (_e, partition) => {
   const p = validPartition(partition);
   if (p.startsWith('temp_')) return [];
   const ses = setupSession(p);
   const cookies = await ses.cookies.get({ url: 'https://accounts.google.com/' }).catch(() => []);
-  if (!cookies.some(c => /^(SID|__Secure-1PSID|__Secure-3PSID|LSID)$/.test(c.name))) return [];
-  return new Promise((resolve) => {
-    const req = net.request({ url: process.env.ALALAMY_GOOGLE_ACCOUNTS_URL || 'https://accounts.google.com/ListAccounts?gpsia=1&source=ChromiumBrowser&json=standard', session: ses, useSessionCookies: true, method: 'GET' });
-    req.setHeader('User-Agent', cleanUA);
-    let body = '';
-    const timer = setTimeout(() => { try { req.abort(); } catch {} resolve([]); }, 8000);
-    req.on('response', (res) => {
-      res.on('data', (d) => { body += d; });
-      res.on('end', () => { clearTimeout(timer); resolve(parseGoogleAccounts(body)); });
-    });
-    req.on('error', () => { clearTimeout(timer); resolve([]); });
-    req.end();
-  });
+  if (!cookies.some(c => /^(SID|__Secure-1PSID|__Secure-3PSID|LSID)$/.test(c.name))) {
+    if (googleCache[p]) { delete googleCache[p]; writeJSON('google-accounts.json', googleCache); }
+    return [];
+  }
+  const list = await fetchGoogleAccounts(ses);
+  if (!list) return googleCache[p] || []; // النت فاصل أو جوجل مردتش: نعرض آخر حساب معروف
+  if (JSON.stringify(list) !== JSON.stringify(googleCache[p] || [])) {
+    if (list.length) googleCache[p] = list; else delete googleCache[p];
+    writeJSON('google-accounts.json', googleCache);
+  }
+  return list;
 });
 
 ipcMain.handle('profiles:clear-data', async (_e, partition) => {

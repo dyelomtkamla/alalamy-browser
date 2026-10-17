@@ -246,6 +246,8 @@ function ensureWebview(tab, url) {
     tab.url = e.url;
     if (tab === state.active) updateNav();
     if (!tab.temp && /^https?:/.test(e.url)) api.addHistory({ url: e.url, title: tab.title });
+    // بعد تسجيل الدخول أو الخروج من جوجل: صورة الحساب واسمه يتحدثوا في زرار الحساب
+    if (e.type === 'did-navigate' && !tab.temp && /^https:\/\/(accounts|mail|myaccount|www)\.google\.[a-z.]+\//.test(e.url) && typeof refreshProfileBtn === 'function') refreshProfileBtn();
     saveSession();
   };
   wv.addEventListener('did-navigate', onNav);

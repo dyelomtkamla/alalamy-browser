@@ -102,7 +102,7 @@ function normalizeSession(s) {
   return null;
 }
 const live = new Map(); // window id -> بيانات النافذة
-let lastSession = null, lastSessionUsed = false, crashed = false, quitting = false;
+let lastSession = null, lastSessionUsed = false, crashed = false, quitting = false, restoreOnce = false;
 const closedWindows = []; // النوافذ اللي اتقفلت (Ctrl+Shift+T بيرجعها)
 function loadSessions() {
   const prev = normalizeSession(readJSON('session.json', null)) || normalizeSession(readJSON('session.json.bak', null));
@@ -113,6 +113,11 @@ function loadSessions() {
   } else lastSession = normalizeSession(readJSON('last-session.json', null));
   if (!isMeaningful(lastSession)) lastSession = null;
   store.session = lastSession;
+  // بعد التحديث التلقائي المتصفح بيفتح تاني بنفس التبويبات
+  try {
+    const f = path.join(dataDir(), 'restore-once');
+    if (fs.existsSync(f)) { fs.unlinkSync(f); restoreOnce = !!lastSession; crashed = false; }
+  } catch { /* ignore */ }
 }
 function windowSnapshot(w) {
   const d = live.get(w.id);
@@ -584,7 +589,7 @@ ipcMain.handle('init', (e) => {
   let restore = (w && w.__restore) || null;
   if (w) w.__restore = null;
   // لو المستخدم مفعّل «استعادة التبويبات عند الفتح»: النافذة الأولى تاخد أول نافذة محفوظة والباقي يتفتح
-  if (first && store.settings.restoreTabs && lastSession && !lastSessionUsed && !SMOKE_TEST) {
+  if (first && (store.settings.restoreTabs || restoreOnce) && lastSession && !lastSessionUsed && !SMOKE_TEST) {
     lastSessionUsed = true;
     const [one, ...rest] = lastSession.windows.filter(x => Array.isArray(x.tabs) && x.tabs.length);
     restore = one || null;

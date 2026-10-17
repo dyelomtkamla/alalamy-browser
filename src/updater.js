@@ -13,7 +13,6 @@ const versionCode = (v) => { const [a = 0, b = 0, c = 0] = String(v).split('.').
 
 let getWindow = () => null;
 let busy = false;
-const postponed = new Set();
 
 async function latest() {
   const res = await net.fetch(`${SERVER}/api/app?platform=windows&v=${encodeURIComponent(app.getVersion())}`, { cache: 'no-store' });
@@ -47,7 +46,8 @@ function findSetup(dir) {
   return null;
 }
 
-async function install(info) {
+// ينزّل برنامج التثبيت الجديد ويرجّع مساره (zip أو exe)
+async function fetchSetup(info) {
   const win = getWindow();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alalamy-update-'));
   const file = path.join(dir, 'update.bin');
@@ -66,9 +66,36 @@ async function install(info) {
     fs.renameSync(file, setup);
   }
   if (!setup) throw new Error('لم يتم العثور على برنامج التثبيت داخل الملف');
-  // برنامج التثبيت يغلق المتصفح بنفسه ثم يثبّت الإصدار الجديد
-  spawn(setup, [], { detached: true, stdio: 'ignore' }).unref();
-  setTimeout(() => app.quit(), 800);
+  return setup;
+}
+
+// تثبيت في صمت (/S). /RELAUNCH = يفتح المتصفح تاني بعد التثبيت، والتبويبات بترجع لوحدها
+function runSetup(setup, relaunch) {
+  if (relaunch) { try { fs.writeFileSync(path.join(app.getPath('userData'), 'restore-once'), String(Date.now())); } catch { /* ignore */ } }
+  spawn(setup, relaunch ? ['/S', '/RELAUNCH'] : ['/S'], { detached: true, stdio: 'ignore' }).unref();
+}
+
+let readySetup = null, readyCode = 0;
+// اتنزل وهيتثبت لما المستخدم يقفل المتصفح
+app.on('will-quit', () => { if (readySetup) { const s = readySetup; readySetup = null; try { runSetup(s, false); } catch { /* ignore */ } } });
+
+async function offerInstall(info, code, setup) {
+  readySetup = setup; readyCode = code;
+  const { response } = await dialog.showMessageBox(getWindow(), {
+    type: 'info',
+    title: 'تحديث جاهز',
+    message: `نزّلنا الإصدار الجديد ${info.version} من متصفح العالمي`,
+    detail: (info.notes ? info.notes + '\n\n' : '') + 'التحديث بياخد ثواني والمتصفح بيفتح تاني بنفس التبويبات. حساباتك وبياناتك محفوظة.' +
+      (info.mandatory ? '' : '\nلو اخترت «بعدين» هيتثبت لوحده أول ما تقفل المتصفح.'),
+    buttons: info.mandatory ? ['تحديث دلوقتي'] : ['تحديث دلوقتي', 'بعدين (لما أقفل المتصفح)'],
+    defaultId: 0,
+    cancelId: info.mandatory ? 0 : 1
+  });
+  if (response !== 0) return { pending: true };
+  readySetup = null;
+  runSetup(setup, true);
+  setTimeout(() => app.quit(), 500);
+  return { installing: true };
 }
 
 async function check({ manual = false } = {}) {
@@ -82,19 +109,14 @@ async function check({ manual = false } = {}) {
       if (manual) await dialog.showMessageBox(getWindow(), { type: 'info', title: 'التحديثات', message: `أنت تستخدم أحدث إصدار (${app.getVersion()}).`, buttons: ['حسنًا'] });
       return { upToDate: true, version: app.getVersion() };
     }
-    if (!manual && postponed.has(code) && !info.mandatory) return { postponed: true };
-    const { response } = await dialog.showMessageBox(getWindow(), {
-      type: 'info',
-      title: 'تحديث جديد',
-      message: `إصدار جديد من متصفح العالمي متاح: ${info.version}`,
-      detail: (info.notes ? info.notes + '\n\n' : '') + 'سيتم تنزيل التحديث وفتح برنامج التثبيت. حساباتك وبياناتك محفوظة.',
-      buttons: ['تحديث الآن', 'لاحقًا'],
-      defaultId: 0,
-      cancelId: 1
-    });
-    if (response !== 0) { postponed.add(code); return { postponed: true }; }
-    await install(info);
-    return { installing: true };
+    // نزّلناه قبل كده ومستني يتقفل المتصفح
+    if (readySetup && readyCode >= code && fs.existsSync(readySetup)) {
+      if (!manual) return { pending: true };
+      return await offerInstall(info, code, readySetup);
+    }
+    // تحديث تلقائي: بننزّل في الخلفية من غير ما نسأل، وبعدين بنقول إنه جاهز
+    const setup = await fetchSetup(info);
+    return await offerInstall(info, code, setup);
   } catch (err) {
     if (manual) dialog.showMessageBox(getWindow(), { type: 'error', title: 'التحديثات', message: 'تعذر التحقق من التحديثات أو تنزيلها.', detail: String(err.message || err), buttons: ['حسنًا'] });
     return { error: String(err.message || err) };
@@ -108,7 +130,7 @@ function init(opts) {
   // التحديث التلقائي لنسخة ويندوز المثبّتة فقط
   if (process.platform !== 'win32' || !app.isPackaged) return;
   setTimeout(() => check(), 20 * 1000);
-  setInterval(() => check(), 6 * 60 * 60 * 1000);
+  setInterval(() => check(), 3 * 60 * 60 * 1000);
 }
 
 module.exports = { init, check, versionCode };

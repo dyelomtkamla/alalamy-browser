@@ -2,6 +2,7 @@
 Unicode true
 SetCompressor /SOLID lzma
 !include "MUI2.nsh"
+!include "FileFunc.nsh"
 
 !define APPNAME "متصفح العالمي"
 !define COPYRIGHT "© 2026 Ahmed Gamal Elshafey. جميع الحقوق محفوظة"
@@ -99,6 +100,13 @@ Section "Install"
   WriteRegStr HKCU "Software\Classes\AlalamyBrowserHTML\DefaultIcon" "" "$INSTDIR\${EXENAME},0"
   WriteRegStr HKCU "Software\Classes\AlalamyBrowserHTML\shell\open\command" "" '"$INSTDIR\${EXENAME}" -- "%1"'
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
+  ; تحديث تلقائي من جوه المتصفح (/S /RELAUNCH): يتثبت في صمت ويفتح المتصفح تاني
+  ${GetParameters} $R0
+  ClearErrors
+  ${GetOptions} $R0 "/RELAUNCH" $R1
+  IfErrors done_relaunch
+  Exec '"$INSTDIR\${EXENAME}" --after-update'
+  done_relaunch:
 SectionEnd
 
 Section "Uninstall"

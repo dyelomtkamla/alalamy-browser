@@ -20,12 +20,20 @@ const NO_CONDITIONAL_PASSKEYS = `(() => {
     const cred = navigator.credentials;
     if (cred && cred.get) {
       const get = cred.get.bind(cred);
+      const clicked = () => !navigator.userActivation || navigator.userActivation.isActive;
       cred.get = function (opts) {
-        if (opts && opts.mediation === 'conditional' && opts.publicKey) {
-          return new Promise((_, reject) => {
-            const sig = opts.signal;
-            if (sig) sig.addEventListener('abort', () => reject(sig.reason || new DOMException('Aborted', 'AbortError')), { once: true });
-          });
+        if (opts && opts.publicKey) {
+          if (opts.mediation === 'conditional') {
+            return new Promise((_, reject) => {
+              const sig = opts.signal;
+              if (sig) sig.addEventListener('abort', () => reject(sig.reason || new DOMException('Aborted', 'AbortError')), { once: true });
+            });
+          }
+          // طلب مفتاح مرور من غير ما المستخدم يضغط على حاجة (زي صفحة الباسورد في جوجل):
+          // نرفضه بهدوء كأن المستخدم ضغط Cancel، فالموقع يكمل بالباسورد ومافيش رسالة ويندوز
+          if (opts.mediation === 'immediate' || opts.mediation === 'silent' || !clicked()) {
+            return Promise.reject(new DOMException('The operation either timed out or was not allowed.', 'NotAllowedError'));
+          }
         }
         return get(opts);
       };

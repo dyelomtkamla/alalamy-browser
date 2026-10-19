@@ -16,7 +16,11 @@ const adblock = require('./adblock');
 // نحذف أي رمز غير قياسي (مثل Electron/xx واسم التطبيق) ونبقي على Mozilla/AppleWebKit/Chrome/Safari فقط
 const cleanUA = app.userAgentFallback
   .replace(/ (?!(?:Chrome|Safari|AppleWebKit|Mozilla)\/)[^\s()]+\/[\d.]+/g, '');
-app.userAgentFallback = cleanUA;
+// المواقع بتشوف هوية كروم + علامة Electron (من غير اسم البرنامج العربي).
+// جوجل بقت بترفض تسجيل الدخول («قد يكون هذا المتصفح غير آمن») لما الهوية تبقى نسخة طبق الأصل من كروم
+// وهي مش كروم فعلاً، لكنها بتقبل علامة Electron العادية. cleanUA فاضل للتنزيلات بس.
+const pageUA = cleanUA.replace(/ Safari\//, ` Electron/${process.versions.electron} Safari/`);
+app.userAgentFallback = pageUA;
 
 const SMOKE_TEST = process.argv.includes('--smoke-test');
 if (SMOKE_TEST) app.setPath('userData', fs.mkdtempSync(path.join(require('os').tmpdir(), 'alalamy-smoke-')));
@@ -176,7 +180,7 @@ function setupSession(partition) {
   if (configured.has(partition)) return configured.get(partition);
   const ses = session.fromPartition(partition);
   configured.set(partition, ses);
-  ses.setUserAgent(cleanUA);
+  ses.setUserAgent(pageUA);
   extensions.setup(partition);
 
   adblock.attach(ses);
@@ -807,7 +811,7 @@ function fetchGoogleAccounts(ses) {
   return new Promise((resolve) => {
     // جوجل بترجع 400 لو الطلب GET، كروم نفسه بيبعته POST بجسم فاضي
     const req = net.request({ url: process.env.ALALAMY_GOOGLE_ACCOUNTS_URL || 'https://accounts.google.com/ListAccounts?gpsia=1&source=ChromiumBrowser&json=standard', session: ses, useSessionCookies: true, method: 'POST' });
-    req.setHeader('User-Agent', cleanUA);
+    req.setHeader('User-Agent', pageUA);
     req.setHeader('Content-Type', 'application/x-www-form-urlencoded');
     let body = '';
     const timer = setTimeout(() => { try { req.abort(); } catch {} resolve(null); }, 8000);
@@ -1255,7 +1259,7 @@ app.whenReady().then(() => {
         const enc = encrypt('secret-123');
         result.passwordRoundTrip = decrypt(enc) === 'secret-123';
         result.encryptionAvailable = safeStorage.isEncryptionAvailable();
-        result.userAgent = cleanUA;
+        result.userAgent = pageUA;
         // مانع الإعلانات: لازم يمنع إعلان جوجل ويسيب سكربت عادي
         const probe = (url) => { let hit = false; adblock.onBeforeRequest({ url, resourceType: 'script', referrer: 'https://www.youm7.com/' }, () => { hit = true; }); return hit; };
         result.adblock = probe('https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js') && !probe('https://www.youm7.com/js/main.js');

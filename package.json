@@ -1,7 +1,7 @@
 {
   "name": "alalamy-browser",
   "productName": "متصفح العالمي",
-  "version": "1.11.3",
+  "version": "1.12.0",
   "description": "متصفح سطح مكتب مبني على Chromium بمميزات كروم وفايرفوكس وأوبرا ومانع إعلانات ليوتيوب والمواقع",
   "main": "src/main.js",
   "scripts": {

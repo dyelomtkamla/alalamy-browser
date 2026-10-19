@@ -5,7 +5,8 @@ const VIDEO_SITES = /^https?:\/\/([a-z0-9-]+\.)*(youtube\.com\/(watch|shorts|liv
 
 function updateVideoBtn() {
   const t = state.active;
-  $('#videoBtn').classList.toggle('hot', !!(t && VIDEO_SITES.test(t.url || '')));
+  // يولع في المواقع المعروفة، أو في أي صفحة اتلقط منها ملف فيديو
+  $('#videoBtn').classList.toggle('hot', !!(t && (VIDEO_SITES.test(t.url || '') || (t.mediaPage && t.mediaPage === t.url))));
 }
 
 function fmtDuration(s) {
@@ -36,13 +37,14 @@ async function openVideoMenu({ url, candidates, partition, anchor, mp3 } = {}) {
     m.append(el('div', { class: 'vmsg' }, 'افتح صفحة فيها فيديو (يوتيوب، تيك توك، انستجرام، فيس بوك...) وبعدين اضغط الزرار ده.'));
     return showVideoMenu(anchor);
   }
+  const referer = tab && /^https?:/i.test(tab.url || '') ? tab.url : undefined;
   const req = ++videoReq;
   m.append(el('div', { class: 'vmsg' }, el('span', { class: 'spinner' }), ' بيقرا الفيديو والجودات المتاحة...'));
   showVideoMenu(anchor);
   // نجرب الروابط واحد ورا التاني لحد ما واحد يطلع فيه فيديو
   let info = null, firstErr = null;
   for (const c of candidates) {
-    info = await api.probeVideo({ url: c, partition });
+    info = await api.probeVideo({ url: c, partition, referer });
     if (req !== videoReq || m.classList.contains('hidden')) return;
     if (info && !info.error) { url = c; break; }
     if (!firstErr || /Unsupported URL/i.test(firstErr.error || '')) firstErr = info;
@@ -58,6 +60,10 @@ async function openVideoMenu({ url, candidates, partition, anchor, mp3 } = {}) {
       info && info.error ? el('div', { class: 'verr', dir: 'ltr' }, info.error) : null));
     return showVideoMenu(anchor);
   }
+  // ملف فيديو مباشر من صفحة مش معروفة: اسمه بيطلع «index» أو «master»، فناخد عنوان الصفحة
+  const generic = /^generic$/i.test(info.site || '') && url !== referer;
+  const fileTitle = generic && tab && tab.title ? tab.title : undefined;
+  if (fileTitle) info.title = fileTitle;
   const head = el('div', { class: 'vhead' },
     info.thumbnail ? el('img', { src: info.thumbnail, alt: '', referrerpolicy: 'no-referrer' }) : null,
     el('div', { class: 'vinfo' }, el('div', { class: 'vtitle' }, info.title),
@@ -65,7 +71,7 @@ async function openVideoMenu({ url, candidates, partition, anchor, mp3 } = {}) {
   m.append(head);
   const start = async (choice) => {
     hideVideoMenu();
-    await api.downloadVideo({ url, partition, choice, title: info.title, useCookies: info.useCookies });
+    await api.downloadVideo({ url, partition, choice, title: info.title, useCookies: info.useCookies, referer, fileTitle });
     toast(choice.kind === 'mp3' ? '🎵 بدأ تحميل الصوت MP3، تابعه من زرار التنزيلات ⬇' : '🎬 بدأ تحميل الفيديو، تابعه من زرار التنزيلات ⬇');
   };
   if (mp3 && info.hasAudio) return start({ kind: 'mp3' }); // زرار 🎵 MP3 اللي فوق الفيديو
@@ -121,6 +127,10 @@ function bindVideo() {
   });
   document.addEventListener('click', (e) => { if (!e.target.closest('#videoMenu') && !e.target.closest('#videoBtn')) hideVideoMenu(); });
   api.on('video:open', ({ url, candidates, partition, mp3 }) => openVideoMenu({ url, candidates, partition, mp3 }));
+  api.on('video:sniffed', ({ wcId, page }) => {
+    const t = state.tabs.find(x => x.wcId === wcId);
+    if (t) { t.mediaPage = page; if (t === state.active) updateVideoBtn(); }
+  });
   commands['download-video'] = () => openVideoMenu();
   const orig = settingsSections.downloads;
   settingsSections.downloads = () => { const c = orig(); c.splice(1, 0, videoToolCard()); return c; };

@@ -186,6 +186,7 @@ function setupSession(partition) {
   adblock.attach(ses);
   ses.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, cb) => {
     try { if (adblock.onBeforeRequest(details, cb)) return; } catch { /* ignore */ }
+    try { sniffMedia(details); } catch { /* ignore */ }
     cb({});
   });
 
@@ -667,13 +668,22 @@ ipcMain.handle('settings:choose-download-dir', async () => {
 ipcMain.handle('app:relaunch', async () => { await flushSessions(); app.relaunch(); app.exit(0); });
 // ---------- تحميل الفيديوهات والصوت ----------
 const validPartition = (p) => typeof p === 'string' && PARTITION_RE.test(p) ? p : 'persist:default';
-ipcMain.handle('video:probe', async (_e, { url, partition }) => {
+// الرابط اللي اتلقط من الشبكة بيتبعت بنفس الصفحة اللي طلبته (ممكن تكون iframe المشغّل نفسه)
+function sniffedReferrer(url) {
+  for (const list of sniffed.values()) { const x = list.find(i => i.url === url); if (x && x.referrer) return x.referrer; }
+  return '';
+}
+const validReferer = (r, url) => {
+  r = sniffedReferrer(url) || r;
+  return typeof r === 'string' && /^https?:\/\//i.test(r) && r !== url ? r : undefined;
+};
+ipcMain.handle('video:probe', async (_e, { url, partition, referer }) => {
   if (!/^https?:\/\//i.test(url || '')) return { error: 'الرابط مش صالح' };
   downloader.autoUpdate();
-  try { return await downloader.probe(url, { partition: validPartition(partition), userAgent: cleanUA }); }
+  try { return await downloader.probe(url, { partition: validPartition(partition), userAgent: cleanUA, referer: validReferer(referer, url) }); }
   catch (e) { return { error: e.message }; }
 });
-ipcMain.handle('video:download', (_e, { url, partition, choice, title, useCookies }) => {
+ipcMain.handle('video:download', (_e, { url, partition, choice, title, useCookies, referer, fileTitle }) => {
   if (!/^https?:\/\//i.test(url || '')) return null;
   let dir = store.settings.downloadDir;
   if (!dir || !fs.existsSync(dir)) dir = app.getPath('downloads');
@@ -685,6 +695,7 @@ ipcMain.handle('video:download', (_e, { url, partition, choice, title, useCookie
   sendUI('downloads:update', entry);
   downloader.download(id, url, choice, {
     partition: validPartition(partition), userAgent: cleanUA, dir, useCookies: typeof useCookies === 'boolean' ? useCookies : undefined,
+    referer: validReferer(referer, url), fileTitle: typeof fileTitle === 'string' ? fileTitle : undefined,
     onProgress: (pr) => {
       if (pr.post) { entry.received = 100; entry.status = choice.kind === 'mp3' ? 'بيحوّل لـ MP3...' : 'بيجمع الصوت مع الصورة...'; }
       else {
@@ -708,6 +719,34 @@ ipcMain.handle('video:download', (_e, { url, partition, choice, title, useCookie
   });
   return id;
 });
+// أي موقع: بنلقط روابط الفيديو اللي الصفحة بتطلبها (m3u8 / mpd / mp4...) علشان نحملها لو yt-dlp مش عارف الموقع
+const sniffed = new Map(); // webContentsId -> [{ url, key, manifest }]
+const MEDIA_PATH = /\.(m3u8|mpd|mp4|m4v|webm|mov|mkv|flv)$/i;
+const SEGMENT_PATH = /\.(ts|m4s|aac|vtt)$|(^|[\/_-])(seg|frag|fragment|chunk|init)[-_]?\d*[^\/]*$/i;
+function sniffMedia(d) {
+  const id = d.webContentsId;
+  if (!id) return;
+  if (d.resourceType === 'mainFrame') { sniffed.delete(id); return; }
+  if (!/^https?:/i.test(d.url) || /googlevideo\.com|youtube\.com|ytimg\.com|doubleclick|googlesyndication/i.test(d.url)) return;
+  let u; try { u = new URL(d.url); } catch { return; }
+  const manifest = /\.(m3u8|mpd)$/i.test(u.pathname) || /[=.](m3u8|mpegurl)(&|$)/i.test(u.search);
+  if (!manifest && !(MEDIA_PATH.test(u.pathname) || d.resourceType === 'media')) return;
+  if (!manifest && SEGMENT_PATH.test(u.pathname)) return;
+  const key = u.origin + u.pathname;
+  let list = sniffed.get(id);
+  if (!list) sniffed.set(id, list = []);
+  const old = list.findIndex(x => x.key === key);
+  if (old >= 0) list.splice(old, 1);
+  const first = !list.length;
+  list.push({ url: d.url, key, manifest, referrer: /^https?:/i.test(d.referrer || '') ? d.referrer : '' });
+  if (list.length > 12) list.shift();
+  if (first) { const wc = allWebContents.fromId(id); if (wc && !wc.isDestroyed()) sendTo(wc, 'video:sniffed', { wcId: id, page: wc.getURL() }); }
+}
+// الأول ملفات التشغيل (m3u8/mpd) لأنها فيها كل الجودات، وأول واحد اتطلب غالبًا هو الرئيسي
+function sniffedList(id) {
+  const list = sniffed.get(Number(id)) || [];
+  return [...list.filter(x => x.manifest), ...list.filter(x => !x.manifest).reverse()].map(x => x.url).slice(0, 4);
+}
 const httpList = (list) => (Array.isArray(list) ? list : []).filter(u => typeof u === 'string' && /^https?:\/\//i.test(u)).slice(0, 6);
 ipcMain.on('video:open-request', (e, { url, candidates, mp3 } = {}) => {
   const list = httpList(candidates); if (!list.length && /^https?:\/\//i.test(url || '')) list.push(url);
@@ -720,14 +759,19 @@ const pendingResolves = new Map();
 let resolveSeq = 0;
 ipcMain.on('video:resolved', (_e, { reqId, candidates } = {}) => {
   const r = pendingResolves.get(reqId);
-  if (r) { pendingResolves.delete(reqId); const list = httpList(candidates); r(list.length ? list : null); }
+  if (r) { pendingResolves.delete(reqId); r(httpList(candidates)); }
 });
 ipcMain.handle('video:resolve-tab', (_e, { wcId } = {}) => new Promise((resolve) => {
   const wc = allWebContents.fromId(Number(wcId));
   if (!wc || wc.isDestroyed()) return resolve(null);
   const reqId = ++resolveSeq;
-  pendingResolves.set(reqId, resolve);
-  setTimeout(() => { if (pendingResolves.delete(reqId)) resolve(null); }, 2000);
+  // بعد روابط الصفحة نضيف روابط الفيديو اللي اتلقطت من الشبكة
+  const done = (list) => {
+    const all = [...new Set([...(list || []), ...sniffedList(wcId)])];
+    resolve(all.length ? all : null);
+  };
+  pendingResolves.set(reqId, done);
+  setTimeout(() => { if (pendingResolves.delete(reqId)) done(null); }, 2000);
   wc.send('video:resolve', { reqId });
 }));
 ipcMain.handle('video:tools', async () => ({ version: await downloader.version() }));

@@ -100,6 +100,11 @@ async function offerInstall(info, code, setup) {
 
 async function check({ manual = false } = {}) {
   if (busy) return { busy: true };
+  // التحديث التلقائي لويندوز بس، على ماك بننزّل النسخة الجديدة يدويًا
+  if (process.platform !== 'win32') {
+    if (manual) await dialog.showMessageBox(getWindow(), { type: 'info', title: 'التحديثات', message: `الإصدار الحالي ${app.getVersion()}.`, detail: 'التحديث التلقائي متاح على ويندوز بس. على الجهاز ده نزّل أحدث نسخة يدويًا.', buttons: ['حسنًا'] });
+    return { upToDate: true, version: app.getVersion() };
+  }
   busy = true;
   try {
     const info = await latest();

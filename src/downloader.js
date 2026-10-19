@@ -86,8 +86,15 @@ const isYouTube = (u) => /^https?:\/\/([a-z0-9-]+\.)*(youtube\.com|youtu\.be|you
 // أخطاء معناها إن الفيديو محتاج تسجيل دخول
 const NEEDS_LOGIN = /sign in|log ?in|login|age|private|members|confirm you|not a bot|cookies|authenticat|rate.?limit|unavailable|registered users/i;
 
-function baseArgs(userAgent, cookieFile) {
+function baseArgs(userAgent, cookieFile, referer) {
   const a = ['--no-playlist', '--no-warnings', '--no-check-certificates', '--encoding', 'utf-8'];
+  // روابط الفيديو اللي اتلقطت من صفحة: سيرفرات كتير بترفض من غير الصفحة اللي جاي منها
+  if (referer) {
+    a.push('--referer', referer);
+    try { a.push('--add-headers', 'Origin:' + new URL(referer).origin); } catch { /* ignore */ }
+    // التوكن اللي في رابط m3u8 الرئيسي لازم يتبعت مع باقي الملفات
+    a.push('--extractor-args', 'generic:fragment_query;variant_query');
+  }
   const deno = denoPath();
   if (deno) a.push('--js-runtimes', 'deno:' + deno);
   if (userAgent) a.push('--user-agent', userAgent);
@@ -108,10 +115,10 @@ async function probe(url, opts) {
     return await probeOnce(url, opts, !first);
   }
 }
-async function probeOnce(url, { partition, userAgent }, useCookies) {
+async function probeOnce(url, { partition, userAgent, referer }, useCookies) {
   const cookieFile = useCookies ? await writeCookies(partition) : null;
   try {
-    const out = await run([...baseArgs(userAgent, cookieFile), '-J', url], { timeout: 120000 });
+    const out = await run([...baseArgs(userAgent, cookieFile, referer), '-J', url], { timeout: 120000 });
     const info = JSON.parse(out);
     const formats = info.formats || [info];
     const audioSize = Math.max(0, ...formats.filter(f => f.vcodec === 'none' && f.acodec && f.acodec !== 'none')
@@ -136,11 +143,14 @@ async function probeOnce(url, { partition, userAgent }, useCookies) {
 
 // التحميل: choice = { kind: 'video', height } أو { kind: 'mp3' }
 const jobs = new Map();
-async function download(id, url, choice, { partition, userAgent, dir, useCookies, onProgress, onDone }) {
+async function download(id, url, choice, { partition, userAgent, dir, useCookies, referer, fileTitle, onProgress, onDone }) {
   if (useCookies === undefined) useCookies = !isYouTube(url);
   const cookieFile = useCookies ? await writeCookies(partition) : null;
-  const tpl = choice.kind === 'mp3' ? '%(title).150B.%(ext)s' : '%(title).120B%(height& - {}p|)s.%(ext)s';
-  const args = [...baseArgs(userAgent, cookieFile), '-P', dir, '-o', tpl, '--force-overwrites',
+  // ملف m3u8/mp4 مباشر اسمه بيبقى «index» أو «master»، فبنسميه باسم الصفحة
+  const name = String(fileTitle || '').replace(/[\\/:*?"<>|%\x00-\x1f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const title = name || '%(title).120B';
+  const tpl = choice.kind === 'mp3' ? (name || '%(title).150B') + '.%(ext)s' : title + '%(height& - {}p|)s.%(ext)s';
+  const args = [...baseArgs(userAgent, cookieFile, referer), '-P', dir, '-o', tpl, '--force-overwrites',
     '--newline', '--progress', '--no-simulate', '--no-mtime',
     '--progress-template', 'download:ALALAMY_PROG %(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s',
     '--print', 'after_move:ALALAMY_FILE %(filepath)s'];

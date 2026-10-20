@@ -8,83 +8,102 @@ const USER_KEY = '__alalamy_last_user';
    والمتصفح مالوش القايمة دي فكانت بتطلع رسالة ويندوز «أدخل مفتاح الأمان» لوحدها كل شوية.
    بنقول للمواقع إن الطريقة دي مش متاحة؛ مفتاح المرور بيشتغل عادي لو المستخدم اختاره بنفسه. */
 const NO_CONDITIONAL_PASSKEYS = `(() => {
-  const top = window;
-  const clicked = (w) => {
-    const a = (x) => { try { return !x.navigator.userActivation || x.navigator.userActivation.isActive; } catch (e) { return false; } };
-    return a(top) || a(w);
-  };
-  // بنعدّل الدالة الأصلية نفسها (prototype) مش نسخة navigator بس، لأن ميتا بتنادي الأصلية مباشرة
-  // أو بتاخدها من إطار فاضي (about:blank) جديد، فبنعدّل كمان أي إطار فاضي بيتعمل جوه الصفحة
+  const root = window;
+  const active = (x) => { try { return !x.navigator.userActivation || x.navigator.userActivation.isActive; } catch (e) { return false; } };
+  // بنعدّل الدالة الأصلية نفسها (prototype) في الصفحة وفي أي إطار فاضي (about:blank) بيتعمل جواها،
+  // لأن ميتا بتوصل للنسخة الأصلية من غير navigator.credentials.get العادية
   const patch = (w) => {
     try {
       if (!w || w.__alalamyPK) return;
       Object.defineProperty(w, '__alalamyPK', { value: true });
+    } catch (e) { return; }
+    const D = w.DOMException || DOMException;
+    const P = w.Promise || Promise;
+    try {
       const PKC = w.PublicKeyCredential;
       if (PKC) {
-        PKC.isConditionalMediationAvailable = () => w.Promise.resolve(false);
+        PKC.isConditionalMediationAvailable = () => P.resolve(false);
         if (PKC.getClientCapabilities) {
           const orig = PKC.getClientCapabilities.bind(PKC);
           PKC.getClientCapabilities = () => orig().then(c => Object.assign({}, c, { conditionalGet: false, conditionalCreate: false }));
         }
       }
+    } catch (e) {}
+    try {
       const CC = w.CredentialsContainer && w.CredentialsContainer.prototype;
       if (CC && CC.get) {
-        const get = CC.get;
-        const D = w.DOMException || DOMException;
-        CC.get = function (opts) {
+        const nativeGet = CC.get;
+        const wrapped = function get(opts) {
           if (opts && opts.publicKey) {
             if (opts.mediation === 'conditional') {
-              return new w.Promise((_, reject) => {
+              return new P((_, reject) => {
                 const sig = opts.signal;
                 if (sig) sig.addEventListener('abort', () => reject(sig.reason || new D('Aborted', 'AbortError')), { once: true });
               });
             }
             // طلب مفتاح مرور من غير ما المستخدم يضغط على حاجة: نرفضه بهدوء كأنه داس Cancel
-            if (opts.mediation === 'immediate' || opts.mediation === 'silent' || !clicked(w)) {
-              return w.Promise.reject(new D('The operation either timed out or was not allowed.', 'NotAllowedError'));
+            if (opts.mediation === 'immediate' || opts.mediation === 'silent' || !(active(root) || active(w))) {
+              try { root.__alalamyPKBlocked = (root.__alalamyPKBlocked || 0) + 1; } catch (e) {}
+              return P.reject(new D('The operation either timed out or was not allowed.', 'NotAllowedError'));
             }
           }
-          return get.call(this, opts);
+          return nativeGet.call(this, opts);
         };
+        Object.defineProperty(CC, 'get', { value: wrapped, writable: true, configurable: true, enumerable: true });
       }
+    } catch (e) {}
+    // أي إطار جوه الإطار ده يتعدّل هو كمان
+    const sub = (x) => { try { if (x && x !== w && x.document) patch(x); } catch (e) {} };
+    const scan = (n) => {
+      try {
+        if (!n) return;
+        if (n.nodeType === 9) n = n.documentElement;
+        if (!n || (n.nodeType !== 1 && n.nodeType !== 11)) return;
+        if (n.nodeType === 1 && /^(IFRAME|FRAME|OBJECT|EMBED)$/.test(n.tagName)) sub(n.contentWindow);
+        if (n.querySelectorAll) for (const f of n.querySelectorAll('iframe,frame,object')) sub(f.contentWindow);
+      } catch (e) {}
+    };
+    const all = () => { try { for (let i = 0; i < w.length; i++) sub(w[i]); } catch (e) {} };
+    try {
+      const hookGetter = (proto, prop, toWin) => {
+        const d = proto && Object.getOwnPropertyDescriptor(proto, prop);
+        if (!d || !d.get) return;
+        Object.defineProperty(proto, prop, Object.assign({}, d, { get() { const v = d.get.call(this); sub(toWin(v)); return v; } }));
+      };
+      for (const C of [w.HTMLIFrameElement, w.HTMLFrameElement, w.HTMLObjectElement]) {
+        if (!C) continue;
+        hookGetter(C.prototype, 'contentWindow', v => v);
+        hookGetter(C.prototype, 'contentDocument', v => v && v.defaultView);
+      }
+      const after = (proto, name, pick) => {
+        const orig = proto && proto[name];
+        if (typeof orig !== 'function') return;
+        proto[name] = function (...args) { const r = orig.apply(this, args); for (const n of pick.call(this, args, r)) scan(n); all(); return r; };
+      };
+      const N = w.Node.prototype, E = w.Element.prototype;
+      after(N, 'appendChild', a => [a[0]]);
+      after(N, 'insertBefore', a => [a[0]]);
+      after(N, 'replaceChild', a => [a[0]]);
+      for (const m of ['append', 'prepend', 'after', 'before', 'replaceWith', 'replaceChildren']) after(E, m, a => a);
+      after(E, 'insertAdjacentElement', a => [a[1]]);
+      after(E, 'insertAdjacentHTML', function () { return [this.parentNode || this]; });
+      after(E, 'setHTMLUnsafe', function () { return [this]; });
+      if (w.Document) { after(w.Document.prototype, 'write', function () { return [this]; }); after(w.Document.prototype, 'writeln', function () { return [this]; }); }
+      if (w.Range) after(w.Range.prototype, 'insertNode', a => [a[0]]);
+      for (const prop of ['innerHTML', 'outerHTML']) {
+        const d = Object.getOwnPropertyDescriptor(E, prop);
+        if (d && d.set) Object.defineProperty(E, prop, Object.assign({}, d, { set(v) { const p = this.parentNode; d.set.call(this, v); scan(prop === 'outerHTML' ? p : this); all(); } }));
+      }
+      const open = w.open;
+      if (typeof open === 'function') w.open = function (...args) { const x = open.apply(this, args); sub(x); return x; };
+      // الإطارات اللي جاية من الـ HTML نفسه (مش من سكربت) بتتمسك هنا قبل ما أي سكربت بعدها يشتغل
+      const mo = new w.MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) scan(n); });
+      const watch = () => { try { mo.observe(w.document, { childList: true, subtree: true }); } catch (e) {} };
+      watch();
+      all();
     } catch (e) {}
   };
   patch(window);
-  const sub = (w) => { try { if (w && w.document) patch(w); } catch (e) {} };
-  const hookGetter = (proto, prop, toWin) => {
-    try {
-      const d = Object.getOwnPropertyDescriptor(proto, prop);
-      if (!d || !d.get) return;
-      Object.defineProperty(proto, prop, Object.assign({}, d, { get() { const v = d.get.call(this); sub(toWin(v)); return v; } }));
-    } catch (e) {}
-  };
-  for (const C of [window.HTMLIFrameElement, window.HTMLFrameElement, window.HTMLObjectElement]) {
-    if (!C) continue;
-    hookGetter(C.prototype, 'contentWindow', v => v);
-    hookGetter(C.prototype, 'contentDocument', v => v && v.defaultView);
-  }
-  // أول ما إطار يتحط في الصفحة نعدّله على طول (قبل ما حد يوصله بـ window[0] أو frames)
-  const scan = (n) => {
-    try {
-      if (!n || n.nodeType !== 1) return;
-      if (/^(IFRAME|FRAME|OBJECT)$/.test(n.tagName)) sub(n.contentWindow);
-      if (n.querySelectorAll) for (const f of n.querySelectorAll('iframe,frame,object')) sub(f.contentWindow);
-    } catch (e) {}
-  };
-  const wrap = (proto, name, pick) => {
-    const orig = proto && proto[name];
-    if (typeof orig !== 'function') return;
-    proto[name] = function (...args) { const r = orig.apply(this, args); for (const n of pick(args, r)) scan(n); return r; };
-  };
-  wrap(Node.prototype, 'appendChild', a => [a[0]]);
-  wrap(Node.prototype, 'insertBefore', a => [a[0]]);
-  wrap(Node.prototype, 'replaceChild', a => [a[0]]);
-  for (const m of ['append', 'prepend', 'after', 'before', 'replaceWith']) wrap(Element.prototype, m, a => a);
-  wrap(Element.prototype, 'insertAdjacentElement', a => [a[1]]);
-  const ih = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
-  if (ih && ih.set) Object.defineProperty(Element.prototype, 'innerHTML', Object.assign({}, ih, { set(v) { ih.set.call(this, v); scan(this); } }));
-  const open = window.open;
-  window.open = function (...args) { const w = open.apply(this, args); sub(w); return w; };
 })();`;
 try {
   const { contextBridge, webFrame } = require('electron');

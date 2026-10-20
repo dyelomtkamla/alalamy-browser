@@ -5,6 +5,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src * data: crx:; style-src 'self' 'unsafe-inline'; script-src 'self'">
   <title>متصفح العالمي</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="learn.css">
 </head>
 <body>
   <div id="tabbar">
@@ -199,6 +200,7 @@
       <button data-act="devtools"><i data-icon="code"></i>أدوات مطوري البرامج <kbd>Ctrl+Shift+I</kbd></button>
     </div>
     <div class="popup submenu hidden" data-menu="alalamy">
+      <button data-act="learn"><i data-icon="learn"></i>اتعلّم وانت بتتصفح (إعلانات وبرمجة) <kbd>Ctrl+Shift+L</kbd></button>
       <button data-act="download-video"><i data-icon="video"></i>تحميل فيديو أو صوت MP3 من الصفحة</button>
       <button data-act="pip"><i data-icon="pip"></i>الفيديو في نافذة صغيرة</button>
       <button data-act="toggle-sidebar"><i data-icon="chat"></i>الشريط الجانبي (واتساب وماسنجر وتليجرام)</button>
@@ -233,6 +235,7 @@
   <script src="video.js"></script>
   <script src="chromemenu.js"></script>
   <script src="extras.js"></script>
+  <script src="learn.js"></script>
   <script src="context.js"></script>
   <script src="session.js"></script>
 </body>

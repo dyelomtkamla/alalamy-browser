@@ -78,6 +78,7 @@ contextBridge.exposeInMainWorld('api', {
   translateText: invoke('translate:text'),
   translateMany: invoke('translate:many'),
   checkUpdates: invoke('update:check'),
+  learnSearch: invoke('learn:search'),
   on: (channel, fn) => {
     if (listeners.includes(channel)) ipcRenderer.on(channel, (_e, data) => fn(data));
   },

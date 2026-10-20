@@ -15,6 +15,7 @@ function shortcutAction(input) {
         case 'w': return 'close-window';
         case 'a': return 'search-tabs';
         case 'm': return 'clients';
+        case 'l': return 'learn';
         case 'b': return 'toggle-bookmarks-bar';
         case 'o': return 'show-bookmarks';
         case 'd': return 'bookmark-all';

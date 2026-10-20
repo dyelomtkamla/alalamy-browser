@@ -11,6 +11,7 @@ const extensions = require('./extensions');
 const translator = require('./translate');
 const updater = require('./updater');
 const adblock = require('./adblock');
+const learn = require('./learn');
 
 // ---------- واجهة مستخدم بهوية كروم عادية حتى لا ترفض جوجل/مايكروسوفت تسجيل الدخول ----------
 // نحذف أي رمز غير قياسي (مثل Electron/xx واسم التطبيق) ونبقي على Mozilla/AppleWebKit/Chrome/Safari فقط
@@ -1050,6 +1051,8 @@ ipcMain.handle('news:get', async () => {
   if (items.length) newsCache = { time: Date.now(), items };
   return items;
 });
+
+ipcMain.handle('learn:search', (_e, query, opts) => learn.search(query, opts && typeof opts === 'object' ? opts : {}, cleanUA));
 
 ipcMain.handle('bookmarks:save', (_e, list) => {
   if (!Array.isArray(list)) return store.bookmarks;

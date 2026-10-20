@@ -445,9 +445,35 @@ function setupGuest(guest) {
       return { action: 'allow', overrideBrowserWindowOptions: { width: 600, height: 720,
         webPreferences: { partition, contextIsolation: true, nodeIntegration: false } } };
     }
-    if (url === 'about:blank') return { action: 'allow' };
+    if (url === 'about:blank' && disposition === 'new-window') return { action: 'allow' };
+    if (url === 'about:blank') {
+      // جيميل وغيره بيفتحوا تبويب فاضي وبعدين يكتبوا فيه الرابط (علشان يخفوا المصدر)،
+      // فبنفتحه مخفي ولما يروح لرابط حقيقي نفتح الرابط ده في تبويب جديد بنفس الحساب
+      pendingBlank.push({ partition, background: disposition === 'background-tab' });
+      return { action: 'allow', overrideBrowserWindowOptions: { show: false,
+        webPreferences: { partition, contextIsolation: true, nodeIntegration: false } } };
+    }
     sendTo(guest, 'open-tab', { url, partition, background: disposition === 'background-tab' });
     return { action: 'deny' };
+  });
+  const pendingBlank = [];
+  guest.on('did-create-window', (child, { url }) => {
+    if (url !== 'about:blank' || child.isVisible()) return;
+    const info = pendingBlank.shift() || { partition: partitionOfWebContents(guest) };
+    const wc = child.webContents;
+    let done = false;
+    const toTab = (e, target, isMainFrame = true) => {
+      if (done || !isMainFrame || !/^https?:/i.test(target || '')) return;
+      done = true;
+      if (e && e.preventDefault) e.preventDefault();
+      if (!guest.isDestroyed()) sendTo(guest, 'open-tab', { url: target, partition: info.partition, background: info.background });
+      setImmediate(() => { if (!child.isDestroyed()) child.destroy(); });
+    };
+    wc.on('will-navigate', (e, target) => toTab(e, target));
+    wc.on('will-redirect', (e, target, _inPlace, isMainFrame) => toTab(e, target, isMainFrame));
+    wc.on('did-start-navigation', (_e, target, _inPlace, isMainFrame) => toTab(null, target, isMainFrame));
+    // لو الصفحة كتبت محتوى في التبويب الفاضي من غير ما تروح لرابط، نظهره زي ما هو
+    setTimeout(() => { if (!done && !child.isDestroyed()) child.show(); }, 2000);
   });
 
   guest.on('context-menu', (_e, p) => {

@@ -8,37 +8,83 @@ const USER_KEY = '__alalamy_last_user';
    والمتصفح مالوش القايمة دي فكانت بتطلع رسالة ويندوز «أدخل مفتاح الأمان» لوحدها كل شوية.
    بنقول للمواقع إن الطريقة دي مش متاحة؛ مفتاح المرور بيشتغل عادي لو المستخدم اختاره بنفسه. */
 const NO_CONDITIONAL_PASSKEYS = `(() => {
-  try {
-    const PKC = window.PublicKeyCredential;
-    if (PKC) {
-      PKC.isConditionalMediationAvailable = () => Promise.resolve(false);
-      if (PKC.getClientCapabilities) {
-        const orig = PKC.getClientCapabilities.bind(PKC);
-        PKC.getClientCapabilities = () => orig().then(c => Object.assign({}, c, { conditionalGet: false, conditionalCreate: false }));
-      }
-    }
-    const cred = navigator.credentials;
-    if (cred && cred.get) {
-      const get = cred.get.bind(cred);
-      const clicked = () => !navigator.userActivation || navigator.userActivation.isActive;
-      cred.get = function (opts) {
-        if (opts && opts.publicKey) {
-          if (opts.mediation === 'conditional') {
-            return new Promise((_, reject) => {
-              const sig = opts.signal;
-              if (sig) sig.addEventListener('abort', () => reject(sig.reason || new DOMException('Aborted', 'AbortError')), { once: true });
-            });
-          }
-          // طلب مفتاح مرور من غير ما المستخدم يضغط على حاجة (زي صفحة الباسورد في جوجل):
-          // نرفضه بهدوء كأن المستخدم ضغط Cancel، فالموقع يكمل بالباسورد ومافيش رسالة ويندوز
-          if (opts.mediation === 'immediate' || opts.mediation === 'silent' || !clicked()) {
-            return Promise.reject(new DOMException('The operation either timed out or was not allowed.', 'NotAllowedError'));
-          }
+  const top = window;
+  const clicked = (w) => {
+    const a = (x) => { try { return !x.navigator.userActivation || x.navigator.userActivation.isActive; } catch (e) { return false; } };
+    return a(top) || a(w);
+  };
+  // بنعدّل الدالة الأصلية نفسها (prototype) مش نسخة navigator بس، لأن ميتا بتنادي الأصلية مباشرة
+  // أو بتاخدها من إطار فاضي (about:blank) جديد، فبنعدّل كمان أي إطار فاضي بيتعمل جوه الصفحة
+  const patch = (w) => {
+    try {
+      if (!w || w.__alalamyPK) return;
+      Object.defineProperty(w, '__alalamyPK', { value: true });
+      const PKC = w.PublicKeyCredential;
+      if (PKC) {
+        PKC.isConditionalMediationAvailable = () => w.Promise.resolve(false);
+        if (PKC.getClientCapabilities) {
+          const orig = PKC.getClientCapabilities.bind(PKC);
+          PKC.getClientCapabilities = () => orig().then(c => Object.assign({}, c, { conditionalGet: false, conditionalCreate: false }));
         }
-        return get(opts);
-      };
-    }
-  } catch (e) {}
+      }
+      const CC = w.CredentialsContainer && w.CredentialsContainer.prototype;
+      if (CC && CC.get) {
+        const get = CC.get;
+        const D = w.DOMException || DOMException;
+        CC.get = function (opts) {
+          if (opts && opts.publicKey) {
+            if (opts.mediation === 'conditional') {
+              return new w.Promise((_, reject) => {
+                const sig = opts.signal;
+                if (sig) sig.addEventListener('abort', () => reject(sig.reason || new D('Aborted', 'AbortError')), { once: true });
+              });
+            }
+            // طلب مفتاح مرور من غير ما المستخدم يضغط على حاجة: نرفضه بهدوء كأنه داس Cancel
+            if (opts.mediation === 'immediate' || opts.mediation === 'silent' || !clicked(w)) {
+              return w.Promise.reject(new D('The operation either timed out or was not allowed.', 'NotAllowedError'));
+            }
+          }
+          return get.call(this, opts);
+        };
+      }
+    } catch (e) {}
+  };
+  patch(window);
+  const sub = (w) => { try { if (w && w.document) patch(w); } catch (e) {} };
+  const hookGetter = (proto, prop, toWin) => {
+    try {
+      const d = Object.getOwnPropertyDescriptor(proto, prop);
+      if (!d || !d.get) return;
+      Object.defineProperty(proto, prop, Object.assign({}, d, { get() { const v = d.get.call(this); sub(toWin(v)); return v; } }));
+    } catch (e) {}
+  };
+  for (const C of [window.HTMLIFrameElement, window.HTMLFrameElement, window.HTMLObjectElement]) {
+    if (!C) continue;
+    hookGetter(C.prototype, 'contentWindow', v => v);
+    hookGetter(C.prototype, 'contentDocument', v => v && v.defaultView);
+  }
+  // أول ما إطار يتحط في الصفحة نعدّله على طول (قبل ما حد يوصله بـ window[0] أو frames)
+  const scan = (n) => {
+    try {
+      if (!n || n.nodeType !== 1) return;
+      if (/^(IFRAME|FRAME|OBJECT)$/.test(n.tagName)) sub(n.contentWindow);
+      if (n.querySelectorAll) for (const f of n.querySelectorAll('iframe,frame,object')) sub(f.contentWindow);
+    } catch (e) {}
+  };
+  const wrap = (proto, name, pick) => {
+    const orig = proto && proto[name];
+    if (typeof orig !== 'function') return;
+    proto[name] = function (...args) { const r = orig.apply(this, args); for (const n of pick(args, r)) scan(n); return r; };
+  };
+  wrap(Node.prototype, 'appendChild', a => [a[0]]);
+  wrap(Node.prototype, 'insertBefore', a => [a[0]]);
+  wrap(Node.prototype, 'replaceChild', a => [a[0]]);
+  for (const m of ['append', 'prepend', 'after', 'before', 'replaceWith']) wrap(Element.prototype, m, a => a);
+  wrap(Element.prototype, 'insertAdjacentElement', a => [a[1]]);
+  const ih = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+  if (ih && ih.set) Object.defineProperty(Element.prototype, 'innerHTML', Object.assign({}, ih, { set(v) { ih.set.call(this, v); scan(this); } }));
+  const open = window.open;
+  window.open = function (...args) { const w = open.apply(this, args); sub(w); return w; };
 })();`;
 try {
   const { contextBridge, webFrame } = require('electron');

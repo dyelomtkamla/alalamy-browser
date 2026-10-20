@@ -532,3 +532,9 @@ body.client-mode #toolbar { box-shadow: inset 0 2px 0 var(--client); }
 .kbdlist h4 { margin: 14px 0 6px; font-size: 13px; color: var(--accent); }
 .kbdrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 2px; border-bottom: 1px solid var(--border); font-size: 13px; }
 .kbdrow kbd { flex: none; font: 600 11.5px/1 system-ui, sans-serif; padding: 4px 7px; border-radius: 5px; border: 1px solid var(--border); background: var(--input); white-space: nowrap; }
+#clientDialog .cgroup { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 2px; color: var(--muted); font-size: 12px; font-weight: 700; }
+#clientDialog .cgroup + .csites { margin-bottom: 8px; }
+#clientDialog .cselall { padding: 3px 10px; font-size: 12px; font-weight: 400; }
+.client-menu .cplat { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 12px 6px; }
+.client-menu .cplat button { width: auto; padding: 4px 10px; border: 1px solid var(--border); border-radius: 14px; font-size: 12px; gap: 5px; }
+.client-menu .cplat img { width: 14px; height: 14px; }

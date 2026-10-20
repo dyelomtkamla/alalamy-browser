@@ -4,16 +4,21 @@
    من غير تسجيل خروج ودخول. شريط التبويبات بيعرض تبويبات العميل المختار بس. */
 
 const CLIENT_SITES = [
-  { key: 'facebook', name: 'فيسبوك', url: 'https://www.facebook.com/', def: true },
-  { key: 'instagram', name: 'انستجرام', url: 'https://www.instagram.com/', def: true },
+  // منصات ميتا كلها
+  { key: 'facebook', name: 'فيسبوك', url: 'https://www.facebook.com/', def: true, meta: true },
+  { key: 'instagram', name: 'انستجرام', url: 'https://www.instagram.com/', def: true, meta: true },
+  { key: 'messenger', name: 'ماسنجر', url: 'https://www.messenger.com/', meta: true },
+  { key: 'whatsapp', name: 'واتساب ويب', url: 'https://web.whatsapp.com/', meta: true },
+  { key: 'threads', name: 'ثريدز', url: 'https://www.threads.com/', meta: true },
+  { key: 'business', name: 'ميتا بيزنس سويت', url: 'https://business.facebook.com/', meta: true },
+  { key: 'adsmanager', name: 'مدير إعلانات ميتا', url: 'https://adsmanager.facebook.com/', meta: true },
+  // باقي المنصات
   { key: 'tiktok', name: 'تيك توك', url: 'https://www.tiktok.com/login', def: true },
   { key: 'snapchat', name: 'سناب شات', url: 'https://www.snapchat.com/web', def: true },
   { key: 'google', name: 'جوجل (Gmail ويوتيوب)', url: 'https://accounts.google.com/', def: true },
   { key: 'x', name: 'إكس (تويتر)', url: 'https://x.com/login', def: true },
-  { key: 'business', name: 'ميتا بيزنس سويت', url: 'https://business.facebook.com/' },
   { key: 'youtube', name: 'يوتيوب ستوديو', url: 'https://studio.youtube.com/' },
-  { key: 'linkedin', name: 'لينكدإن', url: 'https://www.linkedin.com/login' },
-  { key: 'threads', name: 'ثريدز', url: 'https://www.threads.com/' }
+  { key: 'linkedin', name: 'لينكدإن', url: 'https://www.linkedin.com/login' }
 ];
 const CLIENT_COLORS = ['#1a73e8', '#d93025', '#188038', '#f29900', '#9334e6', '#e52592', '#12b5cb', '#5f6368', '#b06000', '#3949ab'];
 
@@ -63,7 +68,13 @@ function openClientSites(c, only) {
     first = first || t;
   }
   if (first) activate(first);
-  else toast('كل مواقع العميل مفتوحة بالفعل');
+  else {
+    // المنصة مفتوحة بالفعل: نروح لتبويبها
+    const host = new URL(sites[0].url).hostname;
+    const t = clientTabs(c.id).find(x => { try { return new URL(x.url).hostname === host; } catch { return false; } });
+    if (t) activate(t);
+    if (sites.length > 1) toast('كل منصات العميل مفتوحة بالفعل');
+  }
 }
 
 function renderClientChip() {
@@ -158,7 +169,17 @@ function showClientMenu(fromProfile = false) {
   if (!state.clients.length) m.append(el('p', { class: 'mhint' }, 'ضيف كل عميل باسمه، وسجّل دخول حساباته مرة واحدة. بعد كده تبدّل بينهم من هنا من غير تسجيل خروج.'));
   m.append(el('hr'), el('button', { onclick: () => { hidePopups(); openClientDialog(); } }, el('b', {}, '+'), ' إضافة عميل جديد'));
   const c = currentClient();
-  if (c) m.append(el('button', { onclick: () => { hidePopups(); openClientSites(c); } }, '↗ فتح كل مواقع ', el('bdi', {}, c.name)));
+  if (c) {
+    // منصات العميل الحالي: دوسة تفتح أي منصة لوحدها، وتعديل المنصات في أي وقت
+    const chips = el('div', { class: 'cplat' }, ...CLIENT_SITES.filter(s => (c.sites || []).includes(s.key)).map(s => {
+      const img = el('img', { src: faviconFor(s.url), alt: '' });
+      img.onerror = () => img.remove();
+      return el('button', { title: 'فتح ' + s.name, onclick: () => { hidePopups(); openClientSites(c, [s.key]); } }, img, s.name);
+    }));
+    m.append(el('hr'), el('div', { class: 'mhead' }, 'منصات ', el('bdi', {}, c.name)), chips,
+      el('button', { onclick: () => { hidePopups(); openClientDialog(c); } }, '✎ تعديل منصات ', el('bdi', {}, c.name)),
+      el('button', { onclick: () => { hidePopups(); openClientSites(c); } }, '↗ فتح كل منصات ', el('bdi', {}, c.name)));
+  }
   const r = (fromProfile ? $('#profileBtn') : $('#clientChip')).getBoundingClientRect();
   m.style.width = '320px';
   placePopup(m, fromProfile ? r.left : r.right - 320, r.bottom + 4);
@@ -181,12 +202,22 @@ function openClientDialog(edit) {
   };
   drawSw();
   const chosen = new Set(edit ? edit.sites : CLIENT_SITES.filter(s => s.def).map(s => s.key));
-  const sites = el('div', { class: 'csites' }, ...CLIENT_SITES.map(s => {
+  const siteBox = (s) => {
     const cb = el('input', { type: 'checkbox', value: s.key, ...(chosen.has(s.key) ? { checked: '' } : {}) });
     const img = el('img', { src: faviconFor(s.url), alt: '' });
     img.onerror = () => img.remove();
     return el('label', {}, cb, img, s.name);
-  }));
+  };
+  const metaGrid = el('div', { class: 'csites' }, ...CLIENT_SITES.filter(s => s.meta).map(siteBox));
+  const otherGrid = el('div', { class: 'csites' }, ...CLIENT_SITES.filter(s => !s.meta).map(siteBox));
+  const allMeta = el('button', { type: 'button', class: 'pill cselall', onclick: () => {
+    const boxes = [...metaGrid.querySelectorAll('input')];
+    const on = !boxes.every(b => b.checked);
+    boxes.forEach(b => { b.checked = on; });
+  } }, 'كل منصات ميتا');
+  const sites = el('div', {},
+    el('div', { class: 'cgroup' }, el('span', {}, 'ميتا'), allMeta), metaGrid,
+    el('div', { class: 'cgroup' }, el('span', {}, 'منصات تانية')), otherGrid);
   const err = el('div', { class: 'cerr' });
   const submit = async () => {
     const nm = name.value.trim();
@@ -194,11 +225,18 @@ function openClientDialog(edit) {
     if (state.clients.some(c => c.name === nm && (!edit || c.id !== edit.id))) { err.textContent = 'فيه عميل بنفس الاسم'; name.focus(); return; }
     const keys = [...sites.querySelectorAll('input:checked')].map(x => x.value);
     if (edit) {
+      const added = keys.filter(k => !(edit.sites || []).includes(k));
       state.clients = await api.saveClients(state.clients.map(c => c.id === edit.id ? { ...c, name: nm, color, sites: keys } : c));
       closeClientDialog();
       for (const t of state.tabs) renderTabBadge(t);
       renderClientChip();
-      toast('تم حفظ العميل');
+      // المنصات اللي اتعلم عليها جديد تتفتح للعميل على طول
+      if (added.length) {
+        if (state.client !== edit.id) setCurrentClient(edit.id);
+        openClientSites(clientById(edit.id), added);
+        layoutGrid();
+      }
+      toast(added.length ? `تم الحفظ، واتفتح ${added.length} منصة جديدة للعميل` : 'تم حفظ العميل');
       return;
     }
     const id = 'c_' + randomId();
@@ -215,7 +253,7 @@ function openClientDialog(edit) {
     el('h3', {}, edit ? 'تعديل العميل' : 'عميل جديد'),
     el('label', { class: 'cfield' }, 'الاسم', name),
     el('div', { class: 'cfield' }, 'اللون', swatches),
-    el('div', { class: 'cfield' }, edit ? 'مواقع العميل' : 'افتح المواقع دي للعميل', sites),
+    el('div', { class: 'cfield' }, edit ? 'منصات العميل (علّم أو شيل العلامة وقت ما تحب)' : 'افتح المنصات دي للعميل', sites),
     el('p', { class: 'cnote' }, '🔒 كل عميل له جلسة لوحده: الكوكيز وتسجيل الدخول بتاعه منفصلين عن حسابك وعن باقي العملاء. هتسجل دخول بنفسك مرة واحدة في كل موقع.'),
     err,
     el('div', { class: 'cbtns' },

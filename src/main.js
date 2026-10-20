@@ -21,6 +21,10 @@ const cleanUA = app.userAgentFallback
 // وهي مش كروم فعلاً، لكنها بتقبل علامة Electron العادية. cleanUA فاضل للتنزيلات بس.
 const pageUA = cleanUA.replace(/ Safari\//, ` Electron/${process.versions.electron} Safari/`);
 app.userAgentFallback = pageUA;
+// مواقع بترفض أي هوية فيها كلمة Electron (سناب شات ويب: «Browser not supported») — بنديها هوية كروم العادية
+const CHROME_ONLY_HOSTS = /(^|\.)(snapchat\.com|snap\.com)$/i;
+const hostOf = (u) => { try { return new URL(u).hostname; } catch { return ''; } };
+const uaFor = (u) => CHROME_ONLY_HOSTS.test(hostOf(u)) ? cleanUA : pageUA;
 
 const SMOKE_TEST = process.argv.includes('--smoke-test');
 if (SMOKE_TEST) app.setPath('userData', fs.mkdtempSync(path.join(require('os').tmpdir(), 'alalamy-smoke-')));
@@ -182,6 +186,13 @@ function setupSession(partition) {
   configured.set(partition, ses);
   ses.setUserAgent(pageUA);
   extensions.setup(partition);
+  // كل طلب ياخد الهوية المناسبة لموقعه (كروم عادي لسناب شات، والهوية العادية لباقي المواقع زي جوجل)
+  ses.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, cb) => {
+    const h = details.requestHeaders;
+    const want = uaFor(details.url);
+    if (h['User-Agent'] && h['User-Agent'] !== want && (want === cleanUA || h['User-Agent'] === cleanUA)) h['User-Agent'] = want;
+    cb({ requestHeaders: h });
+  });
 
   adblock.attach(ses);
   ses.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, cb) => {
@@ -409,6 +420,17 @@ ipcMain.on('page:shortcut', (e, action) => {
 
 function setupGuest(guest) {
   guest.on('before-input-event', (e, input) => handleShortcut(e, input, guest));
+  // هوية كروم العادية لسناب شات (لازم تتغير قبل ما الصفحة تتحمل علشان navigator.userAgent كمان)
+  const fixUA = (url) => { const want = uaFor(url); if (guest.getUserAgent() !== want) { guest.setUserAgent(want); return true; } return false; };
+  guest.on('will-navigate', (_e, url) => fixUA(url));
+  guest.on('will-redirect', (_e, url, _inPlace, isMainFrame) => { if (isMainFrame) fixUA(url); });
+  guest.on('did-start-navigation', (_e, url, _inPlace, isMainFrame) => { if (isMainFrame) fixUA(url); });
+  guest.on('did-navigate', (_e, url) => {
+    if (!CHROME_ONLY_HOSTS.test(hostOf(url))) return;
+    guest.executeJavaScript('navigator.userAgent').then((ua) => {
+      if (/Electron\//.test(ua) && !guest.__uaReload) { guest.__uaReload = true; guest.reload(); }
+    }).catch(() => {});
+  });
   // بعد كل تنقل (زي تسجيل الدخول في جيميل) نكتب الكوكيز على الهارد على طول
   guest.on('did-navigate', () => scheduleFlush());
 
@@ -809,7 +831,7 @@ ipcMain.handle('profiles:save', (_e, profiles) => {
 });
 
 // ---------- العملاء ----------
-const CLIENT_SITES = ['facebook', 'instagram', 'tiktok', 'snapchat', 'google', 'x', 'business', 'youtube', 'linkedin', 'threads'];
+const CLIENT_SITES = ['facebook', 'instagram', 'messenger', 'whatsapp', 'threads', 'business', 'adsmanager', 'tiktok', 'snapchat', 'google', 'x', 'youtube', 'linkedin'];
 function cleanClient(c) {
   return { id: c.id, name: String(c.name || '').trim().slice(0, 40) || 'عميل', color: /^#[0-9a-f]{6}$/i.test(c.color) ? c.color : '#1a73e8',
     partition: 'persist:' + c.id, sites: Array.isArray(c.sites) ? c.sites.filter(x => CLIENT_SITES.includes(x)) : [], created: Number(c.created) || Date.now() };

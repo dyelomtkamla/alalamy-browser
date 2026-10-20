@@ -46,6 +46,10 @@ try {
   else webFrame.executeJavaScript(NO_CONDITIONAL_PASSKEYS);
 } catch { /* ignore */ }
 
+// الإطارات الداخلية (iframe) محتاجة الحماية دي بس: فيسبوك بيطلب مفتاح المرور من إطار مخفي تبع accounts.meta.com
+// باقي الملف (حفظ الباسورد، الفيديو، الاختصارات...) للصفحة الرئيسية فقط
+if (!process.isMainFrame) return;
+
 function visible(el) {
   const r = el.getBoundingClientRect();
   return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';

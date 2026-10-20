@@ -356,6 +356,8 @@ function setupWindow(win, incognito) {
     delete webPreferences.preloadURL;
     webPreferences.preload = path.join(__dirname, 'page-preload.js');
     webPreferences.nodeIntegration = false;
+    // الـ preload يشتغل كمان جوه الإطارات الداخلية علشان حماية مفاتيح المرور (فيسبوك/ميتا بتطلبها من iframe)
+    webPreferences.nodeIntegrationInSubFrames = true;
     webPreferences.contextIsolation = true;
     webPreferences.sandbox = false;
     const partition = params.partition || 'persist:default';

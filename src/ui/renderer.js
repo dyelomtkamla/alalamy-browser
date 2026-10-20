@@ -811,6 +811,7 @@ function bind() {
   $('#tabListBtn').addEventListener('click', (e) => { e.stopPropagation(); showTabList(e.currentTarget); });
   // عجلة الماوس فوق شريط التبويبات تحركه يميناً ويساراً
   $('#tabs').addEventListener('wheel', (e) => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { e.preventDefault(); $('#tabs').scrollLeft -= e.deltaY; } }, { passive: false });
+  $('#newTabTbBtn').addEventListener('click', () => run('new-tab'));
   $('#incognitoBtn').addEventListener('click', () => run('new-temp-tab'));
   $('#downloadsBtn').addEventListener('click', () => openPanel('downloads'));
   $('#menuBtn').addEventListener('click', (e) => { e.stopPropagation(); $('#profileMenu').classList.add('hidden'); $('#menu').classList.toggle('hidden'); });

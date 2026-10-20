@@ -119,7 +119,7 @@ body.native-frame #winControls, body.fullscreen #winControls { display: none; }
 #newtab svg { width: 24px; height: 24px; fill: var(--nt-text); }
 #newtab svg.stroke { fill: none; stroke: var(--nt-text); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 #newtab svg.stroke .fill { fill: var(--nt-text); stroke: none; }
-#ntChips { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+#ntChips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
 #ntChips button { height: 50px; border-radius: 25px; background: var(--nt-chip); display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 16px; color: var(--nt-text); }
 #ntChips button:hover { filter: brightness(.97); }
 #ntChips button.on { outline: 2px solid #4285f4; }

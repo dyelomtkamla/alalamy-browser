@@ -36,6 +36,7 @@ function homeItems() {
     { id: 'home-reload', label: 'إعادة تحميل', accelerator: 'CmdOrCtrl+R' }, SEP,
     { id: 'interests', label: '✨ اختيار مجالك واهتماماتك' },
     { id: 'toggle-feed', label: state.settings.showFeed === false ? 'إظهار الأخبار' : 'إخفاء الأخبار' }, SEP,
+    { id: 'new-tab', label: 'علامة تبويب جديدة', accelerator: 'CmdOrCtrl+T' },
     { id: 'new-temp', label: 'نافذة جديدة للتصفح المتخفي', accelerator: 'CmdOrCtrl+Shift+N' }
   ];
 }
@@ -69,6 +70,7 @@ async function runMenuChoice(id, ctx) {
     case 'toggle-feed':
       state.settings = await api.saveSettings({ showFeed: state.settings.showFeed === false });
       nt.newsLoaded = 0; $('#ntFeed').innerHTML = ''; return renderFeed();
+    case 'new-tab': return run('new-tab');
     case 'new-temp': return run('new-temp-tab');
   }
 }

@@ -313,6 +313,7 @@ function bindNewTab() {
     setAiMode(!nt.ai);
     $('#ntInput').focus();
   });
+  $('#ntNewTab').addEventListener('click', () => run('new-tab'));
   $('#ntIncog').addEventListener('click', () => run('new-temp-tab'));
   $('#ntLens').addEventListener('click', () => navigate('https://lens.google.com/'));
   $('#ntMic').addEventListener('click', () => {

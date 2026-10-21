@@ -291,6 +291,31 @@ function sendUI(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 const isIncognitoWin = (w) => !!(w && w.__incognito);
+/* نافذة العميل: كل عميل بيتفتح في نافذة لوحده، وكل منصة من منصاته في تبويب.
+   النافذة الرئيسية بتفضل بتبويباتك زي ما هي. */
+const CLIENT_ID_RE = /^c_[a-z0-9]{4,20}$/;
+const isClientWin = (w) => !!(w && w.__client);
+// نافذة محفوظة كل تبويباتها لعميل واحد = نافذة العميل ده
+function clientOfRestore(d) {
+  if (!d || typeof d.client !== 'string' || !CLIENT_ID_RE.test(d.client) || !Array.isArray(d.tabs) || !d.tabs.length) return null;
+  return d.tabs.every(t => t && t.clientId === d.client) ? d.client : null;
+}
+function clientName(id) { const c = (store.clients || []).find(x => x.id === id); return c ? c.name : ''; }
+function clientWindowOf(id) { return [...windows].find(w => !w.isDestroyed() && w.__client === id) || null; }
+function openClientWindow(id, { only = null, tabs = null } = {}) {
+  if (!CLIENT_ID_RE.test(id || '') || !(store.clients || []).some(c => c.id === id)) return null;
+  const existing = clientWindowOf(id);
+  if (existing) {
+    if (existing.isMinimized()) existing.restore();
+    existing.show(); existing.focus();
+    existing.webContents.send('client:open-sites', { only, tabs });
+    return existing;
+  }
+  const restore = tabs && tabs.length ? { tabs, active: 0, client: id } : null;
+  return createWindow({ clientId: id, restore, openSites: { only } });
+}
+// النافذة الرئيسية (حسابك الشخصي): مش متخفية ومش نافذة عميل
+function mainWindow() { return [...windows].find(w => !w.isDestroyed() && !w.__incognito && !w.__client) || null; }
 function winOf(wc) {
   if (!wc) return null;
   return BrowserWindow.fromWebContents(wc.hostWebContents || wc) || null;
@@ -318,7 +343,9 @@ function onScreen(b) {
     return screen.getAllDisplays().some(d => { const a = d.workArea; return b.x < a.x + a.width - 60 && b.x + b.width > a.x + 60 && b.y >= a.y - 20 && b.y < a.y + a.height - 60; });
   } catch { return true; }
 }
-function createWindow({ incognito = false, url = null, restore = null } = {}) {
+function createWindow({ incognito = false, url = null, restore = null, clientId = null, openSites = null } = {}) {
+  if (!incognito && !clientId) clientId = clientOfRestore(restore);
+  if (clientId && !(store.clients || []).some(c => c.id === clientId)) clientId = null;
   const saved = readJSON('window.json', { width: 1300, height: 850 });
   const bounds = { width: saved.width || 1300, height: saved.height || 850 };
   if (restore && restore.bounds && restore.bounds.width > 300 && onScreen(restore.bounds)) Object.assign(bounds, restore.bounds);
@@ -328,7 +355,7 @@ function createWindow({ incognito = false, url = null, restore = null } = {}) {
     ...bounds,
     minWidth: 700,
     minHeight: 450,
-    title: incognito ? 'متصفح العالمي (تصفح متخفي)' : 'متصفح العالمي',
+    title: incognito ? 'متصفح العالمي (تصفح متخفي)' : clientId ? `${clientName(clientId)} - متصفح العالمي` : 'متصفح العالمي',
     backgroundColor: incognito ? '#202124' : '#f1f3f4',
     show: !SMOKE_TEST,
     // أزرار التحكم (تصغير/تكبير/إغلاق) مرسومة على الشمال داخل شريط التبويبات.
@@ -347,14 +374,16 @@ function createWindow({ incognito = false, url = null, restore = null } = {}) {
     }
   });
   w.__incognito = incognito;
+  w.__client = clientId || null;
+  w.__openSites = clientId ? openSites : null;
   w.__startUrl = url;
   w.__restore = restore;
   if (restore && restore.maximized && !SMOKE_TEST) w.maximize();
   windows.add(w);
-  if (!incognito && !primaryWin) primaryWin = w;
+  if (!incognito && !clientId && !primaryWin) primaryWin = w;
   win = w;
   Menu.setApplicationMenu(null);
-  w.loadFile(path.join(__dirname, 'ui', 'index.html'), incognito ? { query: { incognito: '1' } } : undefined);
+  w.loadFile(path.join(__dirname, 'ui', 'index.html'), incognito ? { query: { incognito: '1' } } : clientId ? { query: { client: clientId } } : undefined);
   w.on('focus', () => { win = w; });
   w.on('page-title-updated', (e) => e.preventDefault());
   setupWindow(w, incognito);
@@ -411,7 +440,7 @@ function setupWindow(win, incognito) {
   }
   win.on('closed', () => {
     windows.delete(win);
-    if (primaryWin === win) primaryWin = [...windows].find(x => !x.__incognito) || null;
+    if (primaryWin === win) primaryWin = [...windows].find(x => !x.__incognito && !x.__client) || null;
     // بيانات التصفح المتخفي بتتمسح أول ما النافذة تتقفل
     if (incognito && win.__partition) {
       try { session.fromPartition(win.__partition).clearStorageData(); session.fromPartition(win.__partition).clearCache(); } catch {}
@@ -744,7 +773,10 @@ ipcMain.handle('init', (e) => {
   // لو المستخدم مفعّل «استعادة التبويبات عند الفتح»: النافذة الأولى تاخد أول نافذة محفوظة والباقي يتفتح
   if (first && (store.settings.restoreTabs || restoreOnce) && lastSession && !lastSessionUsed && !SMOKE_TEST) {
     lastSessionUsed = true;
-    const [one, ...rest] = lastSession.windows.filter(x => Array.isArray(x.tabs) && x.tabs.length);
+    // النافذة الرئيسية تاخد أول نافذة مش بتاعة عميل، ونوافذ العملاء تتفتح لوحدها
+    const all = lastSession.windows.filter(x => Array.isArray(x.tabs) && x.tabs.length);
+    const one = all.find(x => !clientOfRestore(x)) || null;
+    const rest = all.filter(x => x !== one);
     restore = one || null;
     setTimeout(() => rest.forEach(d => createWindow({ restore: d })), 300);
   }
@@ -758,6 +790,8 @@ ipcMain.handle('init', (e) => {
   canRestore: !!(lastSession && !lastSessionUsed),
   incognito: isIncognitoWin(w),
   primary: !!(w && w === primaryWin),
+  clientWin: (w && w.__client) || null,
+  openSites: (() => { const o = w && w.__openSites; if (w) w.__openSites = null; return o || null; })(),
   downloads: store.downloads,
   encryption: safeStorage.isEncryptionAvailable(),
   platform: process.platform,
@@ -772,6 +806,22 @@ ipcMain.handle('window:new', (e, opts) => {
   const o = opts || {};
   if (o.incognito) openIncognito(typeof o.url === 'string' ? o.url : null, { forceNew: !!o.forceNew });
   else createWindow({ url: typeof o.url === 'string' ? o.url : null });
+});
+// فتح نافذة العميل (أو التركيز عليها لو مفتوحة)، ومعاها تبويبات العميل اللي كانت في نافذة تانية
+ipcMain.handle('client:window', (_e, id, opts) => {
+  const o = opts || {};
+  const only = Array.isArray(o.only) ? o.only.filter(k => typeof k === 'string').slice(0, 40) : null;
+  const tabs = Array.isArray(o.tabs) ? o.tabs.slice(0, 200).map(cleanTab).map(t => ({ ...t, clientId: id })) : null;
+  return !!openClientWindow(String(id || ''), { only, tabs });
+});
+ipcMain.handle('client:windows', () => [...windows].filter(w => !w.isDestroyed() && w.__client).map(w => w.__client));
+// الرجوع لحسابك الشخصي = النافذة الرئيسية
+ipcMain.handle('window:focus-main', () => {
+  const m = mainWindow();
+  if (!m) { createWindow(); return true; }
+  if (m.isMinimized()) m.restore();
+  m.show(); m.focus();
+  return true;
 });
 ipcMain.handle('window:incognito-partition', (e, p) => {
   const w = BrowserWindow.fromWebContents(e.sender);
@@ -944,7 +994,11 @@ function cleanClient(c) {
     partition: 'persist:' + c.id, sites: Array.isArray(c.sites) ? c.sites.filter(x => CLIENT_SITES.includes(x)) : [], created: Number(c.created) || Date.now() };
 }
 function broadcastClients() {
-  for (const w of windows) if (!w.isDestroyed()) w.webContents.send('clients:changed', store.clients);
+  for (const w of windows) {
+    if (w.isDestroyed()) continue;
+    w.webContents.send('clients:changed', store.clients);
+    if (w.__client && clientName(w.__client)) w.setTitle(`${clientName(w.__client)} - متصفح العالمي`);
+  }
 }
 ipcMain.handle('clients:save', (_e, list) => {
   if (!Array.isArray(list)) return store.clients;
@@ -959,6 +1013,9 @@ ipcMain.handle('clients:remove', async (_e, id) => {
   if (!c) return store.clients;
   store.clients = store.clients.filter(x => x !== c);
   writeJSON('clients.json', store.clients, true);
+  // نافذة العميل تتقفل ومترجعش في «المغلقة مؤخراً»
+  const cw = clientWindowOf(c.id);
+  if (cw) { live.delete(cw.id); cw.destroy(); persistSession(true); }
   try { const ses = session.fromPartition(c.partition); await ses.clearStorageData(); await ses.clearCache(); } catch { /* ignore */ }
   store.passwords = store.passwords.filter(p => p.partition !== c.partition);
   writeJSON('passwords.json', store.passwords);
@@ -1380,7 +1437,7 @@ ipcMain.handle('app:quit', () => app.quit());
 ipcMain.handle('window:set-title', (e, name) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   if (!w) return;
-  const base = w.__incognito ? 'متصفح العالمي (تصفح متخفي)' : 'متصفح العالمي';
+  const base = w.__incognito ? 'متصفح العالمي (تصفح متخفي)' : w.__client ? `${clientName(w.__client)} - متصفح العالمي` : 'متصفح العالمي';
   const n = typeof name === 'string' ? name.trim().slice(0, 60) : '';
   w.setTitle(n ? `${n} - ${base}` : base);
 });

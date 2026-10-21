@@ -41,9 +41,28 @@ function setCurrentClient(id) {
   renderClientChip();
 }
 
-// التبديل لعميل: يرجع لآخر تبويب كنت عليه عنده، ولو مفيش تبويبات مفتوحة يفتح مواقعه
+// تبويبات العميل اللي في النافذة دي (من جلسة قديمة) بتتنقل لنافذته
+function takeClientTabs(id) {
+  if (CLIENT_WIN === id) return null;
+  const list = clientTabs(id);
+  if (!list.length) return null;
+  const tabs = list.map(t => ({ url: t.url, title: t.title, pinned: !!t.pinned }));
+  for (const t of list) closeTab(t);
+  if (state.client === id) setCurrentClient(null);
+  return tabs;
+}
+
+// كل عميل في نافذة لوحده: الاختيار بيفتح نافذته (أو يروح لها لو مفتوحة)،
+// و«حسابي الشخصي» بيرجعك للنافذة الرئيسية. تبويباتك في النافذة الرئيسية بتفضل زي ما هي.
 function switchClient(id) {
   hidePopups();
+  id = clientById(id) ? id : null;
+  if (id !== (CLIENT_WIN || null)) {
+    const c = clientById(id);
+    if (c) { api.openClientWindow(id, { tabs: takeClientTabs(id) }); toast(`اتفتحت نافذة العميل «${c.name}»`); }
+    else api.focusMainWindow();
+    return;
+  }
   setCurrentClient(id);
   const vis = visibleTabs();
   if (!vis.length) {
@@ -59,6 +78,11 @@ function switchClient(id) {
 }
 
 function openClientSites(c, only) {
+  if (CLIENT_WIN !== c.id) {
+    // منصات العميل بتتفتح في نافذته هو، مش في النافذة دي
+    api.openClientWindow(c.id, { only: only || c.sites || [], tabs: takeClientTabs(c.id) });
+    return;
+  }
   const sites = CLIENT_SITES.filter(s => (only || c.sites || []).includes(s.key));
   if (!sites.length) { createTab({ clientId: c.id }); return; }
   const open = new Set(clientTabs(c.id).map(t => { try { return new URL(t.url).hostname; } catch { return ''; } }));
@@ -156,7 +180,7 @@ function showClientMenu(fromProfile = false) {
     const b = el('button', { class: 'crow' + (state.client === id ? ' cur' : '') },
       el('span', { class: 'dot', style: c ? `background:${c.color}` : 'background:var(--muted)' }),
       el('span', { class: 'cname' }, c ? c.name : 'حسابي الشخصي'),
-      el('span', { class: 'ccount' }, n ? `${n} تبويب` : ''),
+      el('span', { class: 'ccount', 'data-cid': id || '' }, n ? `${n} تبويب` : ''),
       state.client === id ? el('span', { class: 'check' }, '✓') : null);
     if (c) {
       const edit = el('span', { class: 'rowclose', title: 'تعديل العميل' }, '✎');
@@ -181,6 +205,13 @@ function showClientMenu(fromProfile = false) {
       el('button', { onclick: () => { hidePopups(); openClientDialog(c); } }, '✎ تعديل منصات ', el('bdi', {}, c.name)),
       el('button', { onclick: () => { hidePopups(); openClientSites(c); } }, '↗ فتح كل منصات ', el('bdi', {}, c.name)));
   }
+  // العملاء اللي نافذتهم مفتوحة دلوقتي
+  api.clientWindows().then((ids) => {
+    for (const x of m.querySelectorAll('.ccount[data-cid]')) {
+      const cid = x.getAttribute('data-cid');
+      if (cid && ids.includes(cid) && cid !== CLIENT_WIN) x.textContent = 'نافذة مفتوحة';
+    }
+  }).catch(() => {});
   const r = (fromProfile ? $('#profileBtn') : $('#clientChip')).getBoundingClientRect();
   m.style.width = '320px';
   placePopup(m, fromProfile ? r.left : r.right - 320, r.bottom + 4);
@@ -233,7 +264,6 @@ function openClientDialog(edit) {
       renderClientChip();
       // المنصات اللي اتعلم عليها جديد تتفتح للعميل على طول
       if (added.length) {
-        if (state.client !== edit.id) setCurrentClient(edit.id);
         openClientSites(clientById(edit.id), added);
         layoutGrid();
       }
@@ -245,10 +275,8 @@ function openClientDialog(edit) {
     closeClientDialog();
     const c = clientById(id);
     if (!c) return toast('تعذر إضافة العميل');
-    setCurrentClient(id);
     openClientSites(c);
-    layoutGrid();
-    toast(`اتعمل العميل «${c.name}». سجّل دخول حساباته مرة واحدة وهتفضل محفوظة ليه لوحده`);
+    toast(`اتعمل العميل «${c.name}» واتفتحت منصاته في نافذة لوحده. سجّل دخول حساباته مرة واحدة وهتفضل محفوظة ليه`);
   };
   const box = el('div', { class: 'cdialog', role: 'dialog' },
     el('h3', {}, edit ? 'تعديل العميل' : 'عميل جديد'),
@@ -272,6 +300,12 @@ function closeClientDialog() { const d = $('#clientDialog'); if (d) d.remove(); 
 async function removeClient(c, force = false) {
   if (!force && !confirm(`حذف العميل «${c.name}»؟\nهيتقفل كل تبويباته ويتعمل تسجيل خروج من كل حساباته في المتصفح.`)) return;
   closeClientDialog();
+  if (CLIENT_WIN === c.id) {
+    // حذف العميل من نافذته: النافذة نفسها بتتقفل
+    await api.focusMainWindow();
+    await api.removeClient(c.id);
+    return;
+  }
   if (state.client === c.id) switchClient(null);
   for (const t of clientTabs(c.id)) closeTab(t);
   state.clients = await api.removeClient(c.id);
@@ -283,6 +317,7 @@ async function removeClient(c, force = false) {
 api.on('clients:changed', (list) => {
   if (INCOGNITO_WIN || !Array.isArray(list)) return;
   state.clients = list;
+  if (CLIENT_WIN && !clientById(CLIENT_WIN)) return; // النافذة دي هتتقفل
   // تبويبات عميل اتحذف تتقفل
   for (const t of state.tabs.filter(x => x.clientId && !clientById(x.clientId))) {
     if (state.client === t.clientId) switchClient(null);
@@ -306,23 +341,39 @@ const _hidePopups = hidePopups;
 hidePopups = function () { _hidePopups(); $('#profileMenu').classList.remove('client-menu'); };
 renderClientChip();
 
+// العميل اتفتح تاني من نافذة تانية: تبويبات منقولة و/أو منصات معينة
+api.on('client:open-sites', ({ only, tabs } = {}) => {
+  const c = clientById(CLIENT_WIN);
+  if (!c) return;
+  if (Array.isArray(tabs) && tabs.length) {
+    const made = tabs.map(t => createTab({ url: t.url, title: t.title, pinned: !!t.pinned, background: true, lazy: true }));
+    activate(made[0]);
+  }
+  if (Array.isArray(only) && only.length) openClientSites(c, only);
+  layoutGrid();
+});
+
 /* اختبار آلي للعملاء (بيتنادى من __smokeTest) */
 window.__clientsTest = async () => {
   const wait = (ms) => new Promise(r => setTimeout(r, ms));
   const id = 'c_smoketest';
   state.clients = await api.saveClients([...state.clients, { id, name: 'محمود', color: '#d93025', sites: ['facebook', 'x'] }]);
   const saved = !!clientById(id) && clientById(id).partition === 'persist:c_smoketest';
-  setCurrentClient(id);
-  const a = createTab({ url: 'about:blank', clientId: id });
-  const b = createTab({}); // تبويب جديد وانت على العميل = تبويب للعميل
-  const clientPartition = a.partition === 'persist:c_smoketest' && b.clientId === id && b.partition === a.partition;
-  const chipShows = $('#clientChip').textContent.includes('محمود');
-  switchClient(null);
-  const hidden = a.tabEl.classList.contains('other-client') && visibleTabs().every(t => !t.clientId);
-  await wait(200);
-  switchClient(id);
-  const back = state.active.clientId === id && visibleTabs().length === 2;
+  const mine = visibleTabs().slice();
+  const a = createTab({ url: 'about:blank', clientId: id, background: true }); // تبويب عميل من جلسة قديمة
+  const clientPartition = a.partition === 'persist:c_smoketest' && a.clientId === id;
+  switchClient(id); // يفتح نافذة العميل وينقل تبويبه ليها
+  let wins = [];
+  for (let i = 0; i < 50 && !wins.includes(id); i++) { await wait(100); wins = await api.clientWindows(); }
+  const ownWindow = wins.includes(id);
+  const movedOut = !state.tabs.includes(a) && state.client === null;
+  const mainKept = mine.every(t => state.tabs.includes(t)) && visibleTabs().every(t => !t.clientId);
+  const chipShows = $('#clientChip').textContent.includes('العملاء');
+  switchClient(id); // مرة تانية: نفس النافذة مش نافذة جديدة
+  await wait(300);
+  const sameWindow = (await api.clientWindows()).filter(x => x === id).length === 1;
   await removeClient(clientById(id), true);
-  const removed = !clientById(id) && !state.tabs.some(t => t.clientId === id) && state.client === null;
-  return { saved, clientPartition, chipShows, hidden, back, removed };
+  await wait(300);
+  const removed = !clientById(id) && !(await api.clientWindows()).includes(id) && state.client === null;
+  return { saved, clientPartition, ownWindow, movedOut, mainKept, chipShows, sameWindow, removed };
 };

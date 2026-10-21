@@ -52,6 +52,9 @@ function randomId() { return Math.random().toString(36).slice(2, 10); }
 const INCOGNITO_WIN = new URLSearchParams(location.search).has('incognito');
 const INC_PARTITION = INCOGNITO_WIN ? 'temp_' + randomId() : null;
 if (INCOGNITO_WIN) document.documentElement.classList.add('incognito-win');
+// نافذة عميل: كل تبويباتها على جلسة العميل ده، والنافذة الرئيسية بتفضل بتبويباتك
+const CLIENT_WIN = (() => { const id = new URLSearchParams(location.search).get('client'); return /^c_[a-z0-9]{4,20}$/.test(id || '') ? id : null; })();
+if (CLIENT_WIN) document.documentElement.classList.add('client-win');
 
 async function toURL(input) {
   const s = input.trim();
@@ -66,6 +69,7 @@ async function toURL(input) {
 /* ---------------- التبويبات ---------------- */
 function createTab({ url = NEWTAB, profileId, clientId, temp = false, partition, background = false, index, lazy = false, tempName, title: savedTitle, pinned = false, muted = false } = {}) {
   if (INCOGNITO_WIN) { temp = true; partition = INC_PARTITION; }
+  if (CLIENT_WIN && !temp) { clientId = CLIENT_WIN; partition = undefined; }
   const tab = { id: state.nextId++, url, title: savedTitle || 'تبويب جديد', favicon: '', loading: false, webview: null, zoom: typeof defaultZoomLevel === 'function' ? defaultZoomLevel() : 0, temp, tempName };
   if (temp) tab.partition = partition || 'temp_' + randomId();
   else {
@@ -435,7 +439,16 @@ function restoreWindowTabs(d) {
   if (!d || !Array.isArray(d.tabs) || !d.tabs.length) return;
   const empty = d.replaceEmpty ? state.tabs.filter(t => t.url === NEWTAB && !t.webview) : [];
   const onlyEmpty = d.replaceEmpty && empty.length === state.tabs.length;
-  const made = d.tabs.map(t => createTab({ url: t.url || NEWTAB, title: t.title, clientId: t.clientId || null, pinned: !!t.pinned, muted: !!t.muted, background: true, lazy: true }));
+  let list = d.tabs;
+  if (!CLIENT_WIN && !INCOGNITO_WIN) {
+    // تبويبات العملاء (من جلسة قديمة) تروح لنافذة كل عميل، والنافذة دي تفضل لتبويباتك
+    const byClient = new Map();
+    for (const t of list) if (t.clientId && clientById(t.clientId)) { if (!byClient.has(t.clientId)) byClient.set(t.clientId, []); byClient.get(t.clientId).push(t); }
+    for (const [id, tabs] of byClient) api.openClientWindow(id, { tabs });
+    list = list.filter(t => !(t.clientId && clientById(t.clientId)));
+    if (!list.length) { if (state.client) setCurrentClient(null); return; }
+  }
+  const made = list.map(t => createTab({ url: t.url || NEWTAB, title: t.title, clientId: t.clientId || null, pinned: !!t.pinned, muted: !!t.muted, background: true, lazy: true }));
   if (onlyEmpty) for (const t of empty) { const i = state.tabs.indexOf(t); state.tabs.splice(i, 1); t.tabEl.remove(); }
   const first = made[Math.min(Math.max(0, d.active || 0), made.length - 1)];
   if (first && typeof setCurrentClient === 'function') setCurrentClient(first.clientId || null);
@@ -928,7 +941,14 @@ async function start() {
 
   const s = init.restore;
   state.started = true;
-  if (!INCOGNITO_WIN && s && Array.isArray(s.tabs) && s.tabs.length && !api.smokeTest) {
+  if (CLIENT_WIN) {
+    // نافذة العميل: تبويباته المحفوظة/المنقولة + كل منصاته، كل منصة في تبويب
+    state.client = clientById(CLIENT_WIN) ? CLIENT_WIN : null;
+    if (s && Array.isArray(s.tabs) && s.tabs.length) restoreWindowTabs(s);
+    const c = clientById(CLIENT_WIN);
+    if (c && (init.openSites || !state.tabs.length)) openClientSites(c, (init.openSites && init.openSites.only) || undefined);
+    if (!state.tabs.length) createTab({});
+  } else if (!INCOGNITO_WIN && s && Array.isArray(s.tabs) && s.tabs.length && !api.smokeTest) {
     restoreWindowTabs(s);
     if (!visibleTabs().length) createTab({ clientId: state.client });
   } else if (!(init.startUrl && !api.smokeTest)) {

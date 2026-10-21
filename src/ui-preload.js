@@ -3,7 +3,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const invoke = (ch) => (...args) => ipcRenderer.invoke(ch, ...args);
-const listeners = ['open-tab', 'shortcut', 'pw:prompt', 'downloads:update', 'translate-selection', 'select-tab-wc', 'close-tab-wc', 'window:state', 'video:open', 'video:sniffed', 'clients:changed', 'session:restore', 'perm:prompt', 'af:prompt'];
+const listeners = ['open-tab', 'shortcut', 'pw:prompt', 'downloads:update', 'translate-selection', 'select-tab-wc', 'close-tab-wc', 'window:state', 'video:open', 'video:sniffed', 'clients:changed', 'client:open-sites', 'session:restore', 'perm:prompt', 'af:prompt'];
 
 // شريط أزرار إضافات كروم <browser-action-list>
 try { require('electron-chrome-extensions/browser-action').injectBrowserAction(); } catch (err) { console.error(err); }
@@ -58,6 +58,9 @@ contextBridge.exposeInMainWorld('api', {
   winToggleMaximize: invoke('window:toggle-maximize'),
   winClose: invoke('window:close'),
   newWindow: invoke('window:new'),
+  openClientWindow: invoke('client:window'),
+  clientWindows: invoke('client:windows'),
+  focusMainWindow: invoke('window:focus-main'),
   setIncognitoPartition: invoke('window:incognito-partition'),
   taskList: invoke('task:list'),
   taskEnd: invoke('task:end'),

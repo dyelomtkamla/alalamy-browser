@@ -14,7 +14,7 @@ const CLIENT_SITES = [
   { key: 'adsmanager', name: 'مدير إعلانات ميتا', url: 'https://adsmanager.facebook.com/', meta: true },
   // باقي المنصات
   { key: 'tiktok', name: 'تيك توك', url: 'https://www.tiktok.com/login', def: true },
-  { key: 'snapchat', name: 'سناب شات', url: 'https://www.snapchat.com/web', def: true },
+  { key: 'snapchat', name: 'سناب شات إعلانات', url: 'https://ads.snapchat.com/', def: true },
   { key: 'google', name: 'جوجل (Gmail ويوتيوب)', url: 'https://accounts.google.com/', def: true },
   { key: 'x', name: 'إكس (تويتر)', url: 'https://x.com/login', def: true },
   { key: 'youtube', name: 'يوتيوب ستوديو', url: 'https://studio.youtube.com/' },

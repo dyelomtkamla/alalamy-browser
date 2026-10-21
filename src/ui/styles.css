@@ -538,3 +538,12 @@ body.client-mode #toolbar { box-shadow: inset 0 2px 0 var(--client); }
 .client-menu .cplat { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 12px 6px; }
 .client-menu .cplat button { width: auto; padding: 4px 10px; border: 1px solid var(--border); border-radius: 14px; font-size: 12px; gap: 5px; }
 .client-menu .cplat img { width: 14px; height: 14px; }
+
+/* قارئ الكاميرا والمايك */
+.camwrap { margin: 8px 0; border-radius: 12px; overflow: hidden; background: #000; aspect-ratio: 4 / 3; }
+.camvideo { width: 100%; height: 100%; object-fit: cover; display: block; transform: scaleX(-1); }
+.camresult { margin: 8px 0; padding: 10px 12px; border-radius: 12px; background: var(--hover, rgba(0,0,0,.06)); }
+.camtext { margin: 6px 0; word-break: break-all; font-size: 14px; }
+.camlbl { display: block; margin: 10px 0 4px; font-size: 13px; opacity: .8; }
+.cammeter { height: 8px; margin-top: 8px; border-radius: 4px; background: var(--border, #ddd); overflow: hidden; }
+.cammeter i { display: block; height: 100%; width: 0; background: #188038; transition: width .15s; }

@@ -1,7 +1,7 @@
 {
   "name": "alalamy-browser",
   "productName": "متصفح العالمي",
-  "version": "1.12.9",
+  "version": "1.12.10",
   "description": "متصفح سطح مكتب مبني على Chromium بمميزات كروم وفايرفوكس وأوبرا ومانع إعلانات ليوتيوب والمواقع",
   "main": "src/main.js",
   "scripts": {
@@ -43,7 +43,11 @@
       ]
     },
     "mac": {
-      "target": "dmg"
+      "target": "dmg",
+      "extendInfo": {
+        "NSCameraUsageDescription": "المواقع وقارئ الكاميرا بيستخدموا الكاميرا لما تسمح لهم.",
+        "NSMicrophoneUsageDescription": "المواقع بتستخدم الميكروفون لما تسمح لها (مكالمات، تسجيل صوت، بحث بالصوت)."
+      }
     },
     "linux": {
       "target": "AppImage"

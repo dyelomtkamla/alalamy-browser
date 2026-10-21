@@ -107,6 +107,7 @@
           <svg class="gIcon" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
           <input id="ntInput" dir="auto" autocomplete="off" spellcheck="false" placeholder="ابحث في Google أو اكتب عنوان URL">
           <button type="button" id="ntMic" class="ntIco" title="البحث بالصوت"><svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg></button>
+          <button type="button" id="ntCam" class="ntIco" title="قارئ الكاميرا (QR والعدسة)"><svg viewBox="0 0 24 24" class="stroke"><path d="M4 8h3.2l1.8-2.5h6l1.8 2.5H20v11H4z"/><circle cx="12" cy="13.5" r="3.3"/></svg></button>
           <button type="button" id="ntLens" class="ntIco" title="البحث بالصور (Google Lens)"><svg viewBox="0 0 24 24" class="stroke"><path d="M4 9V7a3 3 0 0 1 3-3h2M15 4h2a3 3 0 0 1 3 3v2M9 20H7a3 3 0 0 1-3-3v-2"/><circle cx="12" cy="12" r="3.2"/><circle cx="18" cy="18" r="1.6" class="fill"/></svg></button>
         </form>
         <div id="ntChips">
@@ -147,6 +148,7 @@
       <button class="zfs" data-act="fullscreen" title="ملء الشاشة (F11)"><i data-icon="fullscreen"></i></button></div>
     <hr>
     <button data-act="print"><i data-icon="print"></i>طباعة... <kbd>Ctrl+P</kbd></button>
+    <button data-act="camera-reader"><i data-icon="camera"></i>قارئ الكاميرا والمايك (QR والعدسة)</button>
     <button data-act="lens-page"><i data-icon="lens"></i>البحث في علامة التبويب هذه باستخدام "عدسة Google"</button>
     <button data-act="translate-ar"><i data-icon="translate"></i>ترجمة...</button>
     <button data-sub="findedit"><i data-icon="findpage"></i>بحث وتعديل</button>
@@ -236,6 +238,8 @@
   <script src="settings.js"></script>
   <script src="video.js"></script>
   <script src="chromemenu.js"></script>
+  <script src="jsQR.js"></script>
+  <script src="camera.js"></script>
   <script src="extras.js"></script>
   <script src="learn.js"></script>
   <script src="context.js"></script>

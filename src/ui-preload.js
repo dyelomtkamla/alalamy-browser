@@ -64,6 +64,7 @@ contextBridge.exposeInMainWorld('api', {
   quitApp: invoke('app:quit'),
   qrCode: invoke('qr:make'),
   lensPage: invoke('page:lens'),
+  lensImage: invoke('camera:lens'),
   setWindowTitle: invoke('window:set-title'),
   defaultBrowserStatus: invoke('default-browser:status'),
   setDefaultBrowser: invoke('default-browser:set'),

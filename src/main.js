@@ -2,7 +2,7 @@
 // متصفح العالمي - العملية الرئيسية (Electron / Chromium)
 const {
   app, BrowserWindow, ipcMain, session, safeStorage, Menu, clipboard,
-  shell, dialog, nativeTheme, net, webContents: allWebContents
+  shell, dialog, nativeTheme, net, systemPreferences, webContents: allWebContents
 } = require('electron');
 const path = require('path');
 const downloader = require('./downloader');
@@ -181,6 +181,12 @@ function restoreLastSession(target) {
 // ---------- إعداد كل جلسة (كل حساب له جلسة معزولة بالكامل: كوكيز، تخزين، كاش) ----------
 const PARTITION_RE = /^(persist:(default|p_[a-z0-9]+|c_[a-z0-9]+)|temp_[a-z0-9]+)$/;
 const configured = new Map(); // partition -> session
+async function askMacMedia(types) {
+  let ok = true;
+  if (types.includes('video')) ok = (await systemPreferences.askForMediaAccess('camera')) && ok;
+  if (types.includes('audio')) ok = (await systemPreferences.askForMediaAccess('microphone')) && ok;
+  return ok;
+}
 function setupSession(partition) {
   if (configured.has(partition)) return configured.get(partition);
   const ses = session.fromPartition(partition);
@@ -203,7 +209,11 @@ function setupSession(partition) {
   });
 
   const allowed = new Set(['notifications', 'fullscreen', 'clipboard-sanitized-write', 'media', 'pointerLock']);
-  ses.setPermissionRequestHandler((_wc, permission, cb) => cb(allowed.has(permission)));
+  ses.setPermissionRequestHandler((_wc, permission, cb, details) => {
+    if (permission !== 'media' || process.platform !== 'darwin') return cb(allowed.has(permission));
+    // ماك: لازم إذن النظام للكاميرا والمايك قبل ما الموقع يستخدمهم
+    askMacMedia((details && details.mediaTypes) || ['video', 'audio']).then(cb, () => cb(false));
+  });
 
   ses.on('will-download', (_e, item) => {
     const id = 'd' + Date.now() + Math.random().toString(36).slice(2, 6);
@@ -572,8 +582,13 @@ function pageMenu(guest, p) {
 async function lensPage(guest, partition) {
   try {
     const img = await guest.capturePage();
-    const png = img.toPNG();
-    const ses = guest.session;
+    await lensUpload(img.toPNG(), guest.session, partition);
+  } catch {
+    sendUI('open-tab', { url: 'https://lens.google.com/', partition });
+  }
+}
+async function lensUpload(png, ses, partition) {
+  try {
     const form = new FormData();
     form.append('encoded_image', new Blob([png], { type: 'image/png' }), 'page.png');
     const res = await ses.fetch('https://lens.google.com/v3/upload?hl=ar', { method: 'POST', body: form, redirect: 'manual' });
@@ -1261,6 +1276,13 @@ ipcMain.handle('window:fullscreen', (e) => { const w = BrowserWindow.fromWebCont
 ipcMain.handle('page:lens', (_e, wcId) => {
   const wc = allWebContents.fromId(wcId);
   if (wc) lensPage(wc, partitionOfWebContents(wc));
+});
+// صورة من «قارئ الكاميرا» بتترفع لعدسة جوجل في جلسة التبويب الحالي (حسابك أو حساب العميل)
+ipcMain.handle('camera:lens', (_e, dataURL, partition) => {
+  const m = /^data:image\/(png|jpeg);base64,(.+)$/.exec(String(dataURL || ''));
+  if (!m || m[2].length > 15e6) return;
+  const p = typeof partition === 'string' && /^(persist:|temp_)[\w:-]+$/.test(partition) ? partition : 'persist:default';
+  lensUpload(Buffer.from(m[2], 'base64'), setupSession(p), p);
 });
 // رمز QR للصفحة (زي كروم)
 ipcMain.handle('qr:make', async (_e, text) => {

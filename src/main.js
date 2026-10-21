@@ -860,7 +860,7 @@ ipcMain.handle('profiles:save', (_e, profiles) => {
 });
 
 // ---------- العملاء ----------
-const CLIENT_SITES = ['facebook', 'instagram', 'messenger', 'whatsapp', 'threads', 'business', 'adsmanager', 'tiktok', 'snapchat', 'google', 'x', 'youtube', 'linkedin'];
+const CLIENT_SITES = ['facebook', 'instagram', 'messenger', 'whatsapp', 'threads', 'business', 'adsmanager', 'tiktok', 'snapchat', 'google', 'googleads', 'x', 'youtube', 'linkedin'];
 function cleanClient(c) {
   return { id: c.id, name: String(c.name || '').trim().slice(0, 40) || 'عميل', color: /^#[0-9a-f]{6}$/i.test(c.color) ? c.color : '#1a73e8',
     partition: 'persist:' + c.id, sites: Array.isArray(c.sites) ? c.sites.filter(x => CLIENT_SITES.includes(x)) : [], created: Number(c.created) || Date.now() };

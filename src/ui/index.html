@@ -136,7 +136,7 @@
     <button data-act="clients"><i data-icon="person"></i>العملاء (التبديل بين حسابات العملاء) <kbd>Ctrl+Shift+M</kbd></button>
     <button data-act="new-client"><i data-icon="plus"></i>إضافة عميل جديد</button>
     <hr>
-    <button data-act="show-passwords"><i data-icon="key"></i>كلمات المرور وميزة "الملء التلقائي"</button>
+    <button data-sub="autofill"><i data-icon="key"></i>كلمات المرور وميزة "الملء التلقائي"</button>
     <button data-sub="history"><i data-icon="history"></i>السجل</button>
     <button data-act="show-downloads"><i data-icon="download"></i>التنزيلات <kbd>Ctrl+J</kbd></button>
     <button data-sub="bookmarks"><i data-icon="star"></i>الإشارات المرجعية والقوائم</button>
@@ -167,10 +167,21 @@
       <button data-act="search-tabs"><i data-icon="search"></i>البحث في التبويبات المفتوحة <kbd>Ctrl+Shift+A</kbd></button>
       <div id="recentClosed"></div>
     </div>
+    <div class="popup submenu hidden" data-menu="autofill">
+      <button data-act="show-passwords"><i data-icon="key"></i>مدير كلمات المرور</button>
+      <button data-act="payment-methods"><i data-icon="lock"></i>طرق الدفع (البطاقات و IBAN)</button>
+      <button data-act="addresses"><i data-icon="home"></i>العناوين والمزيد (الهوية والسفر)</button>
+    </div>
     <div class="popup submenu hidden" data-menu="bookmarks">
       <button data-act="bookmark"><i data-icon="star"></i>إضافة إشارة مرجعية لعلامة التبويب هذه <kbd>Ctrl+D</kbd></button>
       <button data-act="toggle-bookmarks-bar"><i data-icon="bookmark"></i>إظهار/إخفاء شريط الإشارات المرجعية <kbd>Ctrl+Shift+B</kbd></button>
       <button data-act="show-bookmarks"><i data-icon="list"></i>إدارة الإشارات المرجعية</button>
+      <hr>
+      <button data-act="hidden-bookmarks"><i data-icon="lock"></i>الإشارات المرجعية المخفية 🔒</button>
+      <button data-act="hide-page"><i data-icon="lock"></i>إخفاء الصفحة دي في الإشارات المخفية</button>
+      <hr>
+      <button data-act="reading-list"><i data-icon="reader"></i>قائمة القراءة</button>
+      <button data-act="add-reading"><i data-icon="plus"></i>إضافة الصفحة لقائمة القراءة</button>
     </div>
     <div class="popup submenu hidden" data-menu="extensions">
       <button data-act="show-extensions"><i data-icon="puzzle"></i>إدارة الإضافات</button>
@@ -185,6 +196,7 @@
     </div>
     <div class="popup submenu hidden" data-menu="share">
       <button data-act="save-page"><i data-icon="download"></i>حفظ الصفحة باسم... <kbd>Ctrl+S</kbd></button>
+      <button data-act="save-pdf"><i data-icon="print"></i>حفظ الصفحة كملف PDF</button>
       <button data-act="copy-link"><i data-icon="link"></i>نسخ الرابط</button>
       <button data-act="qr-code"><i data-icon="qr"></i>إنشاء رمز استجابة سريعة لهذه الصفحة</button>
       <button data-act="screenshot"><i data-icon="camera"></i>لقطة شاشة <kbd>Ctrl+Shift+S</kbd></button>
@@ -209,6 +221,7 @@
       <button data-act="pip"><i data-icon="pip"></i>الفيديو في نافذة صغيرة</button>
       <button data-act="toggle-sidebar"><i data-icon="chat"></i>الشريط الجانبي (واتساب وماسنجر وتليجرام)</button>
       <button data-act="show-translator"><i data-icon="translate"></i>المترجم</button>
+      <button data-act="close-duplicates"><i data-icon="close"></i>إغلاق التبويبات المكررة</button>
       <button data-act="sleep-all"><i data-icon="gauge"></i>تنويم التبويبات غير النشطة (توفير الذاكرة)</button>
     </div>
     <div class="popup submenu hidden" data-menu="help">
@@ -244,5 +257,7 @@
   <script src="learn.js"></script>
   <script src="context.js"></script>
   <script src="session.js"></script>
+  <script src="autofill.js"></script>
+  <script src="widgets.js"></script>
 </body>
 </html>

@@ -69,13 +69,46 @@ async function openReader() {
     btn('☀ فاتح', () => { readerPrefs.theme = ''; }),
     btn('📜 سيبيا', () => { readerPrefs.theme = 'sepia'; }),
     btn('🌙 داكن', () => { readerPrefs.theme = 'dark'; }),
+    readAloudButton(art),
     btn('✕ خروج من وضع القراءة', closeReader)), art);
   apply();
   r.classList.remove('hidden');
   r.scrollTop = 0;
   $('#readerBtn').classList.add('on');
 }
+/* القراءة بصوت عالي (زي «استماع إلى هذه الصفحة» في كروم وNarrate في فايرفوكس): صوت النظام، وبيعلّم الفقرة اللي بتتقري */
+function readAloudButton(art) {
+  const b = el('button', { class: 'rspeak' }, '🔊 اقرأ لي');
+  b.addEventListener('click', () => {
+    const synth = window.speechSynthesis;
+    if (!synth) return toast('القراءة بالصوت مش متاحة على الجهاز ده');
+    if (synth.speaking) { synth.cancel(); return; }
+    const paras = [...art.querySelectorAll('h1, h2, p')].filter(p => p.textContent.trim().length > 1);
+    const voices = synth.getVoices();
+    let i = 0;
+    const next = () => {
+      for (const p of paras) p.classList.remove('speaking');
+      if (i >= paras.length || $('#reader').classList.contains('hidden')) { b.textContent = '🔊 اقرأ لي'; return; }
+      const p = paras[i++];
+      const text = p.textContent.trim();
+      const u = new SpeechSynthesisUtterance(text);
+      const ar = /[\u0600-\u06ff]/.test(text);
+      u.lang = ar ? 'ar-EG' : 'en-US';
+      const v = voices.find(x => x.lang && x.lang.toLowerCase().startsWith(ar ? 'ar' : 'en'));
+      if (v) u.voice = v;
+      u.rate = readerPrefs.rate || 1;
+      u.onend = next; u.onerror = () => { b.textContent = '🔊 اقرأ لي'; for (const x of paras) x.classList.remove('speaking'); };
+      p.classList.add('speaking');
+      p.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      synth.speak(u);
+    };
+    b.textContent = '⏹ وقف القراءة';
+    next();
+  });
+  return b;
+}
 function closeReader() {
+  try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch { /* ignore */ }
   $('#reader').classList.add('hidden');
   $('#reader').innerHTML = '';
   $('#readerBtn').classList.remove('on');

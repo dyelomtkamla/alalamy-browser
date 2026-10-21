@@ -3,7 +3,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const invoke = (ch) => (...args) => ipcRenderer.invoke(ch, ...args);
-const listeners = ['open-tab', 'shortcut', 'pw:prompt', 'downloads:update', 'translate-selection', 'select-tab-wc', 'close-tab-wc', 'window:state', 'video:open', 'video:sniffed', 'clients:changed', 'session:restore'];
+const listeners = ['open-tab', 'shortcut', 'pw:prompt', 'downloads:update', 'translate-selection', 'select-tab-wc', 'close-tab-wc', 'window:state', 'video:open', 'video:sniffed', 'clients:changed', 'session:restore', 'perm:prompt', 'af:prompt'];
 
 // شريط أزرار إضافات كروم <browser-action-list>
 try { require('electron-chrome-extensions/browser-action').injectBrowserAction(); } catch (err) { console.error(err); }
@@ -80,6 +80,34 @@ contextBridge.exposeInMainWorld('api', {
   translateMany: invoke('translate:many'),
   checkUpdates: invoke('update:check'),
   learnSearch: invoke('learn:search'),
+  // الملء التلقائي والإشارات المخفية وقائمة القراءة
+  afList: invoke('af:list'),
+  afSave: invoke('af:save'),
+  afRemove: invoke('af:remove'),
+  afReveal: invoke('af:reveal'),
+  afPrefs: invoke('af:prefs'),
+  afClear: invoke('af:clear'),
+  afRespond: invoke('af:respond'),
+  openPasskeys: invoke('af:passkeys'),
+  hbStatus: invoke('hb:status'),
+  hbSetPin: invoke('hb:set-pin'),
+  hbUnlock: invoke('hb:unlock'),
+  hbLock: invoke('hb:lock'),
+  hbList: invoke('hb:list'),
+  hbAdd: invoke('hb:add'),
+  hbSave: invoke('hb:save'),
+  hbForget: invoke('hb:forget'),
+  rlList: invoke('rl:list'),
+  rlAdd: invoke('rl:add'),
+  rlMark: invoke('rl:mark'),
+  rlRemove: invoke('rl:remove'),
+  permRespond: invoke('perm:respond'),
+  permList: invoke('perm:list'),
+  permSet: invoke('perm:set'),
+  savePdf: invoke('page:pdf'),
+  weather: invoke('widgets:weather'),
+  rates: invoke('widgets:rates'),
+  geocode: invoke('widgets:geocode'),
   on: (channel, fn) => {
     if (listeners.includes(channel)) ipcRenderer.on(channel, (_e, data) => fn(data));
   },

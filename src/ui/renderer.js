@@ -569,7 +569,7 @@ const panels = {
         list.append(el('div', { class: 'item' },
           el('div', { class: 'main', onclick: () => navigate(b.url) }, el('div', { class: 't' }, b.title), el('div', { class: 's' }, b.url)),
           el('button', { onclick: async () => {
-            const t = prompt('اسم العلامة', b.title); if (t === null) return;
+            const t = await askText('اسم العلامة', b.title); if (t === null) return;
             b.title = t; state.bookmarks = await api.saveBookmarks(state.bookmarks); renderBookmarksBar(); draw();
           } }, 'تعديل'),
           el('button', { disabled: i === 0 ? '' : null, onclick: async () => {

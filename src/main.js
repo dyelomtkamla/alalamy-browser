@@ -198,6 +198,8 @@ function setupSession(partition) {
     const h = details.requestHeaders;
     const want = uaFor(details.url);
     if (h['User-Agent'] && h['User-Agent'] !== want && (want === cleanUA || h['User-Agent'] === cleanUA)) h['User-Agent'] = want;
+    // «عدم التتبع» زي كروم وفايرفوكس: بنبعت DNT و Sec-GPC لو المستخدم مفعّلها
+    if (store.settings.doNotTrack) { h['DNT'] = '1'; h['Sec-GPC'] = '1'; }
     cb({ requestHeaders: h });
   });
 
@@ -208,11 +210,17 @@ function setupSession(partition) {
     cb({});
   });
 
-  const allowed = new Set(['notifications', 'fullscreen', 'clipboard-sanitized-write', 'media', 'pointerLock']);
-  ses.setPermissionRequestHandler((_wc, permission, cb, details) => {
-    if (permission !== 'media' || process.platform !== 'darwin') return cb(allowed.has(permission));
-    // ماك: لازم إذن النظام للكاميرا والمايك قبل ما الموقع يستخدمهم
-    askMacMedia((details && details.mediaTypes) || ['video', 'audio']).then(cb, () => cb(false));
+  const allowed = new Set(['fullscreen', 'clipboard-sanitized-write', 'pointerLock']);
+  ses.setPermissionRequestHandler((wc, permission, cb, details) => {
+    const done = (ok) => {
+      if (!ok || permission !== 'media' || process.platform !== 'darwin') return cb(!!ok);
+      // ماك: لازم إذن النظام للكاميرا والمايك قبل ما الموقع يستخدمهم
+      askMacMedia((details && details.mediaTypes) || ['video', 'audio']).then(cb, () => cb(false));
+    };
+    if (allowed.has(permission)) return cb(true);
+    if (!ASKABLE.has(permission)) return cb(false);
+    // إعدادات المواقع زي كروم: بنسأل المستخدم مرة لكل موقع ونفتكر اختياره
+    askPermission(wc, permission, details, partition).then(done, () => cb(false));
   });
 
   ses.on('will-download', (_e, item) => {
@@ -670,6 +678,61 @@ ipcMain.handle('pw:get', (e, origin) => {
 });
 
 function safeOrigin(u) { try { return new URL(u).origin; } catch { return ''; } }
+
+// ---------- إعدادات المواقع (الكاميرا والمايك، الموقع الجغرافي، الإشعارات، قراءة الحافظة) ----------
+const ASKABLE = new Set(['media', 'geolocation', 'notifications', 'clipboard-read', 'midiSysex']);
+const pendingPerm = new Map();
+function permKey(permission, details) {
+  if (permission !== 'media') return permission;
+  const t = (details && details.mediaTypes) || [];
+  return t.includes('video') ? 'camera' : t.includes('audio') ? 'microphone' : 'camera';
+}
+function permHostOf(u) { try { return new URL(u).host; } catch { return ''; } }
+function askPermission(wc, permission, details, partition) {
+  const host = permHostOf((details && (details.requestingUrl || details.securityOrigin)) || (wc && wc.getURL()) || '');
+  if (!host) return Promise.resolve(false);
+  const key = permKey(permission, details);
+  const keys = permission === 'media' ? (((details && details.mediaTypes) || []).length ? details.mediaTypes.map(t => t === 'video' ? 'camera' : 'microphone') : [key]) : [key];
+  const saved = (store.settings.sitePerms || {})[host] || {};
+  if (keys.some(k => saved[k] === 'block')) return Promise.resolve(false);
+  if (keys.every(k => saved[k] === 'allow')) return Promise.resolve(true);
+  if (SMOKE_TEST) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const id = 'perm' + Date.now() + Math.random().toString(36).slice(2, 5);
+    const timer = setTimeout(() => { pendingPerm.delete(id); resolve(false); }, 120000);
+    pendingPerm.set(id, { host, keys, temp: String(partition).startsWith('temp_'), resolve: (ok) => { clearTimeout(timer); resolve(ok); } });
+    sendTo(wc, 'perm:prompt', { id, host, keys });
+  });
+}
+ipcMain.handle('perm:respond', (_e, { id, allow, remember } = {}) => {
+  const p = pendingPerm.get(id);
+  if (!p) return;
+  pendingPerm.delete(id);
+  if (remember !== false && !p.temp) {
+    const all = store.settings.sitePerms = Object.assign({}, store.settings.sitePerms);
+    const cur = all[p.host] = Object.assign({}, all[p.host]);
+    for (const k of p.keys) cur[k] = allow ? 'allow' : 'block';
+    writeJSON('settings.json', store.settings);
+  }
+  p.resolve(!!allow);
+});
+ipcMain.handle('perm:list', () => store.settings.sitePerms || {});
+ipcMain.handle('perm:set', (_e, host, key, value) => {
+  if (typeof host !== 'string' || !/^[\w.-]+(:\d+)?$/.test(host)) return store.settings.sitePerms || {};
+  const all = store.settings.sitePerms = Object.assign({}, store.settings.sitePerms);
+  if (key === '*') delete all[host];
+  else if (['camera', 'microphone', 'geolocation', 'notifications', 'clipboard-read', 'midiSysex'].includes(key)) {
+    const cur = all[host] = Object.assign({}, all[host]);
+    if (value === 'allow' || value === 'block') cur[key] = value; else delete cur[key];
+    if (!Object.keys(cur).length) delete all[host];
+  }
+  writeJSON('settings.json', store.settings);
+  return all;
+});
+
+// الملء التلقائي، الإشارات المخفية، قائمة القراءة + أدوات الصفحة الرئيسية
+require('./autofill').setup({ ipcMain, readJSON, writeJSON, encrypt, decrypt, sendUI, partitionOfWebContents, shell, safeOrigin, store, BrowserWindow });
+require('./widgets').setup({ ipcMain, net, readJSON, writeJSON });
 
 // ---------- واجهة برمجية للواجهة الرسومية ----------
 ipcMain.handle('init', (e) => {
@@ -1156,7 +1219,7 @@ ipcMain.handle('settings:save', (_e, s) => {
     if (typeof s.translateTo === 'string' && /^[a-zA-Z-]{2,8}$/.test(s.translateTo)) store.settings.translateTo = s.translateTo;
     if (['system', 'light', 'dark'].includes(s.theme)) { store.settings.theme = s.theme; nativeTheme.themeSource = s.theme; }
     if (Array.isArray(s.hiddenShortcuts)) store.settings.hiddenShortcuts = s.hiddenShortcuts.filter(x => typeof x === 'string').slice(-200);
-    for (const k of ['showBookmarksBar', 'askDownload', 'hardwareAcceleration', 'videoOverlay', 'showFeed', 'showSidebar']) if (typeof s[k] === 'boolean') store.settings[k] = s[k];
+    for (const k of ['showBookmarksBar', 'askDownload', 'hardwareAcceleration', 'videoOverlay', 'showFeed', 'showSidebar', 'doNotTrack', 'showWidgets', 'httpsFirst']) if (typeof s[k] === 'boolean') store.settings[k] = s[k];
     if (ZOOMS.includes(s.defaultZoom)) store.settings.defaultZoom = s.defaultZoom;
     if (s.downloadDir === '') store.settings.downloadDir = '';
     const ids = (v) => v.filter(x => typeof x === 'string' && /^[a-z]{2,12}$/.test(x)).slice(0, 30);
@@ -1325,6 +1388,19 @@ ipcMain.handle('window:set-title', (e, name) => {
 ipcMain.handle('page:save', (_e, wcId) => {
   const wc = allWebContents.fromId(wcId);
   if (wc) savePage(wc);
+});
+// حفظ الصفحة كملف PDF (زي «حفظ كـ PDF» في كروم وفايرفوكس)
+ipcMain.handle('page:pdf', async (_e, wcId) => {
+  const wc = allWebContents.fromId(wcId);
+  if (!wc) return null;
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    defaultPath: path.join(app.getPath('downloads'), (wc.getTitle() || 'page').replace(/[\\/:*?"<>|]/g, '_').slice(0, 120) + '.pdf'),
+    filters: [{ name: 'PDF', extensions: ['pdf'] }]
+  });
+  if (canceled || !filePath) return null;
+  const data = await wc.printToPDF({ printBackground: true, preferCSSPageSize: true });
+  fs.writeFileSync(filePath, data);
+  return filePath;
 });
 
 // ---------- بدء التشغيل ----------

@@ -203,6 +203,269 @@ window.addEventListener('DOMContentLoaded', () => {
   new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
 });
 
+// ---------------- الملء التلقائي للعناوين والبطاقات والهوية + اقتراح كلمة مرور قوية (زي كروم) ----------------
+const AF_RULES = [
+  // [النوع, regex على autocomplete أو الاسم/المعرف/النص الظاهر]
+  ['email', /e-?mail|البريد|الايميل|الإيميل/i],
+  ['tel', /phone|mobile|tel\b|telephone|cell|الهاتف|الموبايل|المحمول|التليفون|رقم الجوال|الجوال/i],
+  ['cc-number', /card.?number|cc.?num|cardnum|ccnumber|credit.?card|card.?no|رقم البطاقة/i],
+  ['cc-name', /name.?on.?card|card.?holder|cc.?name|holder.?name|الاسم على البطاقة|اسم حامل/i],
+  ['cc-exp-month', /exp.*month|cc.?month|month.*exp|شهر الانتهاء/i],
+  ['cc-exp-year', /exp.*year|cc.?year|year.*exp|سنة الانتهاء/i],
+  ['cc-exp', /expir|exp.?date|valid.?thru|mm.?\/?.?yy|cc.?exp|تاريخ الانتهاء|الصلاحية/i],
+  ['cc-csc', /cvv|cvc|csc|security.?code|رمز الأمان/i],
+  ['passport', /passport|جواز/i],
+  ['national-id', /national.?id|id.?number|nid\b|الرقم القومي|رقم الهوية|الهوية الوطنية/i],
+  ['given-name', /first.?name|given.?name|fname|الاسم الأول/i],
+  ['family-name', /last.?name|family.?name|surname|lname|اسم العائلة|الاسم الأخير/i],
+  ['org', /company|organi[sz]ation|business|الشركة|المؤسسة/i],
+  ['zip', /zip|postal|post.?code|postcode|الرمز البريدي|الكود البريدي/i],
+  ['city', /city|town|locality|المدينة/i],
+  ['state', /state|province|region|county|governorate|المحافظة|الولاية|المنطقة/i],
+  ['country', /country|الدولة|البلد/i],
+  ['street2', /address.?(line)?.?2|apartment|suite|apt|الشقة|الدور/i],
+  ['street', /address|street|addr|line1|العنوان|الشارع/i],
+  ['name', /full.?name|^name$|your.?name|\bname\b|الاسم/i]
+];
+const AC_MAP = {
+  'name': 'name', 'given-name': 'given-name', 'family-name': 'family-name', 'organization': 'org', 'street-address': 'street', 'address-line1': 'street',
+  'address-line2': 'street2', 'address-level2': 'city', 'address-level1': 'state', 'postal-code': 'zip', 'country': 'country', 'country-name': 'country',
+  'tel': 'tel', 'tel-national': 'tel', 'email': 'email', 'cc-number': 'cc-number', 'cc-name': 'cc-name', 'cc-exp': 'cc-exp', 'cc-exp-month': 'cc-exp-month',
+  'cc-exp-year': 'cc-exp-year', 'cc-csc': 'cc-csc', 'new-password': 'new-password'
+};
+const ADDR_TYPES = new Set(['name', 'given-name', 'family-name', 'org', 'street', 'street2', 'city', 'state', 'zip', 'country', 'tel', 'email']);
+const CARD_TYPES = new Set(['cc-number', 'cc-name', 'cc-exp', 'cc-exp-month', 'cc-exp-year']);
+const ID_TYPES = new Set(['passport', 'national-id']);
+
+function fieldText(inp) {
+  let t = [inp.name, inp.id, inp.getAttribute('placeholder'), inp.getAttribute('aria-label'), inp.getAttribute('data-testid')].filter(Boolean).join(' ');
+  try {
+    if (inp.labels && inp.labels.length) t += ' ' + [...inp.labels].map(l => l.textContent).join(' ');
+    else { const l = inp.closest('label'); if (l) t += ' ' + l.textContent; }
+  } catch { /* ignore */ }
+  return t.slice(0, 300);
+}
+function afType(inp) {
+  if (!inp || !(inp instanceof HTMLInputElement || inp instanceof HTMLSelectElement || inp instanceof HTMLTextAreaElement)) return null;
+  const type = (inp.type || '').toLowerCase();
+  if (['hidden', 'submit', 'button', 'checkbox', 'radio', 'file', 'image', 'range', 'color', 'search'].includes(type)) return null;
+  const ac = (inp.getAttribute('autocomplete') || '').toLowerCase().split(/\s+/).filter(t => !/^(section-|shipping|billing|home|work|mobile|fax|on|off)$/.test(t)).pop();
+  if (type === 'password') {
+    if (ac === 'new-password') return 'new-password';
+    const form = inp.form || document;
+    const pws = [...form.querySelectorAll('input[type="password"]')].filter(visible);
+    if (pws.length >= 2 || /new|confirm|signup|register|create|جديد|تأكيد/i.test(fieldText(inp) + ' ' + ((inp.form && inp.form.action) || '') + ' ' + location.pathname)) return 'new-password';
+    return null;
+  }
+  if (ac && AC_MAP[ac]) return AC_MAP[ac];
+  if (type === 'email') return 'email';
+  if (type === 'tel') return 'tel';
+  // خانات تسجيل الدخول والبحث مش عناوين
+  if (/user.?name|login|search|query|captcha|otp|coupon|promo|q$/i.test((inp.name || '') + ' ' + (inp.id || ''))) return null;
+  const txt = fieldText(inp);
+  for (const [t, re] of AF_RULES) if (re.test(txt)) return t;
+  return null;
+}
+function setAny(elm, value) {
+  if (value == null || value === '') return false;
+  value = String(value);
+  if (elm instanceof HTMLSelectElement) {
+    const v = value.toLowerCase();
+    const opt = [...elm.options].find(o => o.value.toLowerCase() === v || o.text.trim().toLowerCase() === v)
+      || [...elm.options].find(o => v.length > 2 && (o.text.toLowerCase().includes(v) || v.includes(o.text.trim().toLowerCase()) && o.text.trim().length > 2))
+      || (/^\d+$/.test(v) ? [...elm.options].find(o => Number(o.value) === Number(v) || Number(o.text) === Number(v) || o.value.endsWith(v.slice(-2)) && v.length === 4 && o.value.length === 2) : null);
+    if (!opt) return false;
+    elm.value = opt.value;
+  } else {
+    const proto = elm instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value').set.call(elm, value);
+    elm.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  elm.dispatchEvent(new Event('change', { bubbles: true }));
+  elm.dispatchEvent(new Event('blur', { bubbles: true }));
+  return true;
+}
+function afFields(scope) {
+  return [...(scope || document).querySelectorAll('input, select, textarea')].filter(x => visible(x) && !x.disabled && !x.readOnly).map(x => [x, afType(x)]).filter(([, t]) => t);
+}
+function addrValue(a, t) {
+  const parts = String(a.name || '').trim().split(/\s+/);
+  switch (t) {
+    case 'name': return a.name;
+    case 'given-name': return parts[0];
+    case 'family-name': return parts.length > 1 ? parts.slice(1).join(' ') : '';
+    case 'org': return a.org;
+    case 'street': return a.street;
+    case 'street2': return '';
+    case 'city': return a.city; case 'state': return a.state; case 'zip': return a.zip; case 'country': return a.country;
+    case 'tel': return a.phone; case 'email': return a.email;
+  }
+  return '';
+}
+
+let afCache = null, afCacheTime = 0;
+async function afSuggestions() {
+  if (afCache && Date.now() - afCacheTime < 20000) return afCache;
+  try { afCache = await ipcRenderer.invoke('af:suggest'); } catch { afCache = { addresses: [], cards: [], ids: [] }; }
+  afCacheTime = Date.now();
+  return afCache;
+}
+function afGenPassword() {
+  const sets = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnopqrstuvwxyz', '23456789', '!@#$%*-_?'];
+  const all = sets.join('');
+  const rnd = (n) => { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] % n; };
+  const out = sets.map(s => s[rnd(s.length)]);
+  while (out.length < 16) out.push(all[rnd(all.length)]);
+  for (let i = out.length - 1; i > 0; i--) { const j = rnd(i + 1); [out[i], out[j]] = [out[j], out[i]]; }
+  return out.join('');
+}
+
+// القايمة الصغيرة تحت الخانة (Shadow DOM علشان ستايل الموقع مايأثرش عليها)
+let afHost = null, afBox = null, afItems = [], afSel = -1, afFor = null;
+function afHide() { if (afHost) afHost.style.display = 'none'; afFor = null; afItems = []; afSel = -1; }
+function afShow(inp, rows) {
+  if (!rows.length) return afHide();
+  if (!afHost) {
+    afHost = document.createElement('alalamy-autofill');
+    const root = afHost.attachShadow({ mode: 'closed' });
+    root.innerHTML = `<style>
+      .box{position:fixed;z-index:2147483647;min-width:260px;max-width:420px;background:#fff;color:#202124;border-radius:10px;box-shadow:0 4px 18px rgba(0,0,0,.25);
+        font:13px/1.4 "Segoe UI",Tahoma,Arial,sans-serif;padding:6px 0;direction:rtl;text-align:right;overflow:hidden}
+      .it{display:flex;gap:10px;align-items:center;padding:8px 14px;cursor:pointer}
+      .it:hover,.it.on{background:#e8f0fe}
+      .ic{width:22px;text-align:center;font-size:16px;flex:none}
+      .tx{display:flex;flex-direction:column;min-width:0}
+      .tx b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .tx small{color:#5f6368;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .ft{border-top:1px solid #e0e0e0;margin-top:4px;padding:6px 14px 2px;color:#5f6368;font-size:12px}
+      @media (prefers-color-scheme: dark){.box{background:#2d2e31;color:#e8eaed}.it:hover,.it.on{background:#394457}.ft{border-color:#444;color:#9aa0a6}.tx small{color:#9aa0a6}}
+    </style><div class="box"></div>`;
+    afBox = root.querySelector('.box');
+    afBox.addEventListener('mousedown', (e) => e.preventDefault());
+    document.documentElement.appendChild(afHost);
+  }
+  afFor = inp; afItems = rows; afSel = -1;
+  afBox.textContent = '';
+  rows.forEach((r, i) => {
+    const it = document.createElement('div'); it.className = 'it';
+    const ic = document.createElement('span'); ic.className = 'ic'; ic.textContent = r.icon;
+    const tx = document.createElement('span'); tx.className = 'tx';
+    const b = document.createElement('b'); b.textContent = r.title; b.dir = 'auto';
+    tx.append(b);
+    if (r.sub) { const s = document.createElement('small'); s.textContent = r.sub; s.dir = 'auto'; tx.append(s); }
+    it.append(ic, tx);
+    it.addEventListener('click', () => { afHide(); r.run(); });
+    afBox.append(it);
+  });
+  const ft = document.createElement('div'); ft.className = 'ft'; ft.textContent = 'الملء التلقائي من متصفح العالمي';
+  afBox.append(ft);
+  const rc = inp.getBoundingClientRect();
+  afHost.style.display = 'block';
+  afBox.style.width = Math.max(260, Math.min(420, rc.width)) + 'px';
+  const h = afBox.offsetHeight || 200;
+  afBox.style.top = (rc.bottom + 4 + h > innerHeight && rc.top > h ? rc.top - h - 4 : rc.bottom + 4) + 'px';
+  const rtl = getComputedStyle(inp).direction === 'rtl';
+  afBox.style.left = Math.max(4, Math.min(rtl ? rc.right - afBox.offsetWidth : rc.left, innerWidth - afBox.offsetWidth - 4)) + 'px';
+}
+function afMark(i) {
+  afSel = (i + afItems.length) % afItems.length;
+  [...afBox.querySelectorAll('.it')].forEach((x, j) => x.classList.toggle('on', j === afSel));
+}
+async function afOnFocus(inp) {
+  const t = afType(inp);
+  if (!t || t === 'cc-csc') return afHide();
+  const scope = inp.form || document;
+  if (t === 'new-password') {
+    if (inp.value) return afHide();
+    const pw = afGenPassword();
+    return afShow(inp, [{ icon: '🔑', title: 'استخدام كلمة مرور قوية', sub: pw, run: () => {
+      for (const p of [...scope.querySelectorAll('input[type="password"]')].filter(visible)) { if (!p.value || p === inp) setValue(p, pw); }
+      // تظهر الكلمة لحظة علشان المستخدم يعرف إنها اتكتبت، والمتصفح هيعرض يحفظها بعد التسجيل
+      ipcRenderer.send('af:used', 'gen', '');
+    } }]);
+  }
+  const s = await afSuggestions();
+  if (document.activeElement !== inp) return;
+  const rows = [];
+  if (ADDR_TYPES.has(t)) {
+    for (const a of s.addresses) {
+      const main = addrValue(a, t) || a.name || a.street;
+      if (!main) continue;
+      if (inp.value && !String(main).toLowerCase().startsWith(inp.value.toLowerCase())) continue;
+      rows.push({ icon: '📍', title: main, sub: [a.name, a.street, a.city, a.phone].filter(x => x && x !== main).join('، '), run: () => {
+        for (const [f, ft] of afFields(scope)) if (ADDR_TYPES.has(ft) && (!f.value || f === inp)) setAny(f, addrValue(a, ft));
+        ipcRenderer.send('af:used', 'addresses', a.id);
+      } });
+    }
+  } else if (CARD_TYPES.has(t)) {
+    for (const c of s.cards) {
+      rows.push({ icon: '💳', title: `${c.brand || 'بطاقة'} •••• ${c.last4}`, sub: [c.name, c.expMonth && `${c.expMonth}/${String(c.expYear).slice(-2)}`, c.nick].filter(Boolean).join(' · '), run: async () => {
+        const num = await ipcRenderer.invoke('af:fill-secret', 'cards', c.id);
+        const yy = String(c.expYear || ''), mm = String(c.expMonth || '');
+        for (const [f, ft] of afFields(scope)) {
+          if (f.value && f !== inp) continue;
+          if (ft === 'cc-number') setAny(f, num);
+          else if (ft === 'cc-name') setAny(f, c.name);
+          else if (ft === 'cc-exp-month') setAny(f, mm);
+          else if (ft === 'cc-exp-year') setAny(f, f instanceof HTMLSelectElement || (f.maxLength > 0 && f.maxLength <= 2) ? (f.maxLength === 2 ? yy.slice(-2) : yy) : yy);
+          else if (ft === 'cc-exp') setAny(f, mm && yy ? `${mm}/${f.maxLength === 7 ? yy : yy.slice(-2)}` : '');
+        }
+      } });
+    }
+  } else if (ID_TYPES.has(t)) {
+    for (const x of s.ids.filter(x => (t === 'passport') === (x.kind === 'passports'))) {
+      rows.push({ icon: t === 'passport' ? '🛂' : '🪪', title: `${x.name || ''} •••• ${x.last4}`, sub: x.country || '', run: async () => {
+        setAny(inp, await ipcRenderer.invoke('af:fill-secret', x.kind, x.id));
+      } });
+    }
+  }
+  afShow(inp, rows.slice(0, 6));
+}
+document.addEventListener('focusin', (e) => { const t = e.target; if (t && t.matches && t.matches('input, textarea')) afOnFocus(t).catch(() => {}); }, true);
+document.addEventListener('mousedown', (e) => { if (afFor && e.target !== afFor && e.target !== afHost) afHide(); }, true);
+document.addEventListener('input', (e) => { if (afFor && e.target === afFor && afFor.type !== 'password') afOnFocus(afFor).catch(() => {}); }, true);
+document.addEventListener('keydown', (e) => {
+  if (!afFor || !afItems.length || afHost.style.display === 'none') return;
+  if (e.key === 'ArrowDown') { e.preventDefault(); afMark(afSel + 1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); afMark(afSel - 1); }
+  else if (e.key === 'Enter' && afSel >= 0) { e.preventDefault(); e.stopPropagation(); const r = afItems[afSel]; afHide(); r.run(); }
+  else if (e.key === 'Escape') afHide();
+}, true);
+window.addEventListener('scroll', () => { if (afFor) afHide(); }, true);
+window.addEventListener('resize', afHide);
+
+// بعد إرسال الفورم: لو فيه عنوان أو بطاقة جديدة نعرض حفظها
+let afLastCapture = '';
+function afCapture(scope) {
+  const fields = afFields(scope);
+  if (fields.length < 2) return;
+  const addr = {}, card = {};
+  const first = {}, last = {};
+  for (const [f, t] of fields) {
+    const v = (f instanceof HTMLSelectElement ? (f.selectedOptions[0] ? f.selectedOptions[0].text : '') : f.value || '').trim();
+    if (!v) continue;
+    if (t === 'given-name') first.v = v; else if (t === 'family-name') last.v = v;
+    else if (t === 'tel') addr.phone = v; else if (t === 'street2') addr.street = (addr.street ? addr.street + '، ' : '') + v;
+    else if (ADDR_TYPES.has(t)) addr[t] = addr[t] || v;
+    else if (t === 'cc-number') card.number = v; else if (t === 'cc-name') card.name = v;
+    else if (t === 'cc-exp') card.exp = v; else if (t === 'cc-exp-month') card.expMonth = v; else if (t === 'cc-exp-year') card.expYear = v;
+  }
+  if (!addr.name && (first.v || last.v)) addr.name = [first.v, last.v].filter(Boolean).join(' ');
+  const payload = {};
+  if (Object.keys(addr).length >= 3) payload.address = addr;
+  if (card.number) payload.card = card;
+  if (!payload.address && !payload.card) return;
+  const key = JSON.stringify(payload);
+  if (key === afLastCapture) return;
+  afLastCapture = key;
+  ipcRenderer.send('af:capture', payload);
+}
+document.addEventListener('submit', (e) => { try { afCapture(e.target); } catch { /* ignore */ } }, true);
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('button, input[type="submit"], [role="button"]');
+  if (b) setTimeout(() => { try { afCapture(b.form || b.closest('form') || document); } catch { /* ignore */ } }, 0);
+}, true);
+
 // ---------------- تحميل الفيديو: معرفة رابط الفيديو اللي قدامك ----------------
 // في صفحات الفيد (تيك توك For You، انستجرام، فيس بوك، X، يوتيوب) رابط الصفحة مش رابط الفيديو،
 // فبندوّر على الفيديو اللي شغال/ظاهر ونجيب الرابط الحقيقي بتاعه من البوست اللي هو فيه.

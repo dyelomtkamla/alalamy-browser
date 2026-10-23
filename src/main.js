@@ -852,10 +852,12 @@ function closeDockedDevtools(id) {
   try { if (!d.win.isDestroyed()) d.win.contentView.removeChildView(d.view); } catch { /* ignore */ }
   try { d.view.webContents.close(); } catch { /* ignore */ }
 }
+// wcId = 0 يعني واجهة المتصفح نفسها (الصفحة الرئيسية / التبويب الجديد)
+const devtoolsTarget = (e, wcId) => Number(wcId) === 0 ? e.sender : allWebContents.fromId(Number(wcId));
 ipcMain.handle('devtools:open', (e, { wcId, bounds, x, y, console: toConsole } = {}) => {
-  const guest = allWebContents.fromId(Number(wcId));
+  const guest = devtoolsTarget(e, wcId);
   const w = BrowserWindow.fromWebContents(e.sender);
-  if (!guest || guest.isDestroyed() || !w || guest.hostWebContents !== e.sender) return false;
+  if (!guest || guest.isDestroyed() || !w || (guest !== e.sender && guest.hostWebContents !== e.sender)) return false;
   let d = dockedDevtools.get(guest.id);
   if (!d || d.win !== w) {
     if (d) closeDockedDevtools(guest.id);
@@ -878,17 +880,18 @@ ipcMain.handle('devtools:open', (e, { wcId, bounds, x, y, console: toConsole } =
 });
 ipcMain.handle('devtools:show', (e, { wcId, bounds } = {}) => {
   const w = BrowserWindow.fromWebContents(e.sender);
+  const want = Number(wcId) === 0 ? e.sender.id : Number(wcId);
   for (const [id, o] of dockedDevtools) {
     if (o.win !== w) continue;
-    const on = id === Number(wcId);
+    const on = id === want;
     o.view.setVisible(on);
     if (on && bounds) o.view.setBounds(devtoolsRect(bounds));
   }
-  return dockedDevtools.has(Number(wcId));
+  return dockedDevtools.has(want);
 });
-ipcMain.handle('devtools:close', (_e, wcId) => {
-  const guest = allWebContents.fromId(Number(wcId));
-  closeDockedDevtools(Number(wcId));
+ipcMain.handle('devtools:close', (e, wcId) => {
+  const guest = devtoolsTarget(e, wcId);
+  if (guest) closeDockedDevtools(guest.id);
   try { if (guest && !guest.isDestroyed() && guest.isDevToolsOpened()) guest.closeDevTools(); } catch { /* ignore */ }
   return true;
 });

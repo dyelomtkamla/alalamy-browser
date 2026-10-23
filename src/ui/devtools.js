@@ -32,25 +32,31 @@ function devDockBounds() {
   const r = $('#devDockBody').getBoundingClientRect();
   return { x: r.left, y: r.top, width: r.width, height: r.height };
 }
+// التبويب اللي لسه على الصفحة الرئيسية مالوش webview، فبنفحص واجهة المتصفح نفسها (0)
+const devTarget = (t) => (t && t.webview ? (t.wcId || -1) : 0);
 function devtoolsSync() {
   const d = $('#devDock'); if (!d) return;
   const t = state.active;
-  const on = !!(t && t.devtools && t.webview && t.wcId);
+  const on = !!(t && t.devtools && devTarget(t) >= 0);
+  // التبويب اتنقل من الرئيسية لموقع (أو العكس): نفتح الفحص للصفحة الجديدة
+  if (on && t.devWc !== devTarget(t)) return devtoolsOpen(t);
   d.classList.toggle('hidden', !on);
-  api.devtoolsShow({ wcId: on ? t.wcId : -1, bounds: on ? devDockBounds() : null });
+  api.devtoolsShow({ wcId: on ? devTarget(t) : -1, bounds: on ? devDockBounds() : null });
 }
 function devtoolsOpen(tab, opts = {}) {
-  if (!tab || !tab.webview || !tab.wcId) return;
+  if (!tab || devTarget(tab) < 0) return;
   devDockEl();
   tab.devtools = true;
+  tab.devWc = devTarget(tab);
   if (tab !== state.active) activate(tab);
   $('#devDock').classList.remove('hidden');
-  requestAnimationFrame(() => api.devtoolsOpen({ wcId: tab.wcId, bounds: devDockBounds(), ...opts }));
+  requestAnimationFrame(() => api.devtoolsOpen({ wcId: tab.devWc, bounds: devDockBounds(), ...opts }));
 }
 function devtoolsClose(tab) {
   if (!tab) return;
   tab.devtools = false;
-  if (tab.wcId) api.devtoolsClose(tab.wcId);
+  if (tab.devWc != null && tab.devWc >= 0) api.devtoolsClose(tab.devWc);
+  tab.devWc = null;
   devtoolsSync();
 }
 window.devtoolsOnActivate = () => devtoolsSync();
@@ -61,5 +67,12 @@ api.on('devtools:open', ({ wcId, x, y }) => {
 Object.assign(commands, {
   'devtools': () => { const t = state.active; if (t) (t.devtools ? devtoolsClose(t) : devtoolsOpen(t)); },
   'devtools-console': () => { const t = state.active; if (t) devtoolsOpen(t, { console: true }); },
-  'inspect': () => { const t = state.active, w = t && t.webview; if (w) devtoolsOpen(t, { x: Math.round(w.clientWidth / 2), y: Math.round(w.clientHeight / 2) }); }
+  'inspect': (pt) => {
+    const t = state.active; if (!t) return;
+    const w = t.webview, c = $('#content');
+    if (pt && Number.isFinite(pt.x)) return devtoolsOpen(t, pt);
+    if (w) return devtoolsOpen(t, { x: Math.round(w.clientWidth / 2), y: Math.round(w.clientHeight / 2) });
+    const r = c.getBoundingClientRect();
+    devtoolsOpen(t, { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) });
+  }
 });

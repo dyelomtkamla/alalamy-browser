@@ -18,12 +18,21 @@ const extensionsPath = () => path.join(app.getPath('userData'), 'Extensions');
 // ---- chrome.sidePanel (لوحة الإضافة الجانبية زي كروم) ----
 const spOptions = new Map(); // extensionId -> { path, enabled }
 function spExtension(ses, id) { try { return exts(ses).getExtension(id); } catch { return null; } }
+// إضافة Claude مش كاتبة side_panel في الـ manifest: بتحدد صفحة اللوحة من الكود (setOptions)، فبندوّر على الملف
+function guessPanelPath(e) {
+  const m = (e && e.manifest) || {};
+  if (!e || !e.path || !(Array.isArray(m.permissions) && m.permissions.includes('sidePanel'))) return null;
+  for (const f of ['sidepanel.html', 'side_panel.html', 'side-panel.html', 'sidepanel/index.html', 'panel.html']) {
+    if (fs.existsSync(path.join(e.path, f))) return f;
+  }
+  return null;
+}
 function spBehavior(id) { const b = (hooks.getSettings().extPanelBehavior || {})[id]; return typeof b === 'boolean' ? b : null; }
 function spInfo(ses, id) {
   const e = spExtension(ses, id); if (!e) return null;
   const m = e.manifest || {};
   const o = spOptions.get(id) || {};
-  const p = o.path || (m.side_panel && m.side_panel.default_path);
+  const p = o.path || (m.side_panel && m.side_panel.default_path) || guessPanelPath(e);
   if (!p || o.enabled === false) return null;
   const partition = [...byPartition.keys()].find(k => session.fromPartition(k) === ses) || 'persist:default';
   return { id, name: list().find(x => x.id === id)?.name || m.name || e.name, url: new URL(p, `chrome-extension://${id}/`).href, partition };
@@ -205,7 +214,7 @@ function setup(partition) {
         const tab = details.tabId >= 0 ? ba.ctx.store.getTabById(details.tabId) : ba.ctx.store.getActiveTabOfCurrentWindow();
         const hasPopup = tab ? !!ba.getPopupUrl(id, tab.id) : !!(m.action || m.browser_action || {}).default_popup;
         // كروم: openPanelOnActionClick. لو الإضافة ماقالتش، ولها لوحة ومالهاش popup → نفتح اللوحة
-        if (b === true || (b === null && !hasPopup && m.side_panel && m.side_panel.default_path)) {
+        if (b === true || (b === null && !hasPopup && ((m.side_panel && m.side_panel.default_path) || guessPanelPath(spExtension(ses, id))))) {
           const win = tab ? ba.ctx.store.tabToWindow.get(tab) : null;
           if (spOpen(ses, id, win, true)) return;
         }

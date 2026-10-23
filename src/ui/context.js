@@ -26,6 +26,7 @@ function linkItems(a) {
   ];
   if (a.dataset.sc) items.push(SEP, { id: 'remove-sc', label: 'إزالة الاختصار' });
   if (a.dataset.bm) items.push(SEP, { id: 'remove-bm', label: 'إزالة من المفضلة' });
+  items.push(SEP, { id: 'inspect', label: 'فحص', accelerator: 'CmdOrCtrl+Shift+I' });
   return items;
 }
 
@@ -37,7 +38,8 @@ function homeItems() {
     { id: 'interests', label: '✨ اختيار مجالك واهتماماتك' },
     { id: 'toggle-feed', label: state.settings.showFeed === false ? 'إظهار الأخبار' : 'إخفاء الأخبار' }, SEP,
     { id: 'new-tab', label: 'علامة تبويب جديدة', accelerator: 'CmdOrCtrl+T' },
-    { id: 'new-temp', label: 'نافذة جديدة للتصفح المتخفي', accelerator: 'CmdOrCtrl+Shift+N' }
+    { id: 'new-temp', label: 'نافذة جديدة للتصفح المتخفي', accelerator: 'CmdOrCtrl+Shift+N' }, SEP,
+    { id: 'inspect', label: 'فحص', accelerator: 'CmdOrCtrl+Shift+I' }
   ];
 }
 
@@ -72,6 +74,7 @@ async function runMenuChoice(id, ctx) {
       nt.newsLoaded = 0; $('#ntFeed').innerHTML = ''; return renderFeed();
     case 'new-tab': return run('new-tab');
     case 'new-temp': return run('new-temp-tab');
+    case 'inspect': return commands.inspect({ x: ctx.x, y: ctx.y });
   }
 }
 
@@ -80,7 +83,7 @@ document.addEventListener('contextmenu', async (e) => {
   // التبويبات ليها قايمتها الخاصة
   if (t.closest('.tab')) return;
   let items = null;
-  const ctx = {};
+  const ctx = { x: e.clientX, y: e.clientY };
   const editable = t.closest('input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=button]), textarea, [contenteditable=""], [contenteditable=true]');
   const link = t.closest('[data-url]');
   const selText = String(window.getSelection() || '').trim();

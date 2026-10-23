@@ -227,6 +227,7 @@ function ensureWebview(tab, url) {
     if (tab.zoom) wv.setZoomLevel(tab.zoom);
     if (tab === state.active) updateNav();
     if (typeof onTabReady === 'function') onTabReady(tab);
+    if (tab.devtools && tab === state.active && typeof devtoolsSync === 'function') devtoolsSync();
   });
   wv.addEventListener('did-start-loading', () => { tab.loading = true; tab.tabEl.classList.add('loading'); if (tab === state.active) updateNav(); });
   wv.addEventListener('did-stop-loading', () => { tab.loading = false; tab.tabEl.classList.remove('loading'); if (tab === state.active) updateNav(); });

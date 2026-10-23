@@ -3,7 +3,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const invoke = (ch) => (...args) => ipcRenderer.invoke(ch, ...args);
-const listeners = ['open-tab', 'shortcut', 'pw:prompt', 'downloads:update', 'translate-selection', 'select-tab-wc', 'close-tab-wc', 'window:state', 'video:open', 'video:sniffed', 'clients:changed', 'client:open-sites', 'session:restore', 'perm:prompt', 'af:prompt'];
+const listeners = ['open-tab', 'shortcut', 'pw:prompt', 'downloads:update', 'translate-selection', 'select-tab-wc', 'close-tab-wc', 'window:state', 'video:open', 'video:sniffed', 'clients:changed', 'client:open-sites', 'session:restore', 'perm:prompt', 'af:prompt', 'ext:sidepanel', 'ext:sidepanel-close', 'devtools:open'];
 
 // شريط أزرار إضافات كروم <browser-action-list>
 try { require('electron-chrome-extensions/browser-action').injectBrowserAction(); } catch (err) { console.error(err); }
@@ -76,6 +76,11 @@ contextBridge.exposeInMainWorld('api', {
   showFile: invoke('page:show-file'),
   listExtensions: invoke('ext:list'),
   removeExtension: invoke('ext:remove'),
+  saveRecording: invoke('rec:save'),
+  importPasswords: invoke('pw:import'),
+  devtoolsOpen: invoke('devtools:open'),
+  devtoolsShow: invoke('devtools:show'),
+  devtoolsClose: invoke('devtools:close'),
   loadUnpackedExtension: invoke('ext:load-unpacked'),
   webStoreURL: invoke('ext:store-url'),
   tabActivated: invoke('tab:activated'),

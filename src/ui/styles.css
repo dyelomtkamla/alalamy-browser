@@ -71,7 +71,7 @@ body.native-frame #winControls, body.fullscreen #winControls { display: none; }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
 #addressWrap { flex: 1; position: relative; display: flex; align-items: center; background: var(--input); border-radius: 18px; height: 34px; padding: 0 10px; min-width: 120px; }
 #addressWrap:focus-within { box-shadow: 0 0 0 2px var(--accent); background: var(--toolbar); }
-#address { flex: 1; border: 0; background: transparent; outline: none; height: 100%; font-size: 14px; }
+#address { flex: 1; text-align: right; border: 0; background: transparent; outline: none; height: 100%; font-size: 14px; }
 #secureIcon { font-size: 12px; margin-inline-end: 6px; }
 #starBtn.on { color: #f4b400; }
 #adBadge { font-size: 12px; color: var(--muted); white-space: nowrap; }
@@ -660,3 +660,51 @@ body.client-mode #toolbar { box-shadow: inset 0 2px 0 var(--client); }
 @media (max-width: 1239px) {
   #ntWidgetsInline { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; margin-top: 18px; }
 }
+
+/* ---- لوحة الإضافة الجانبية (زي Claude في كروم): على الشمال ---- */
+#extPanel { width: 400px; flex: none; display: flex; flex-direction: column; position: relative; border-inline-start: 1px solid var(--border); background: var(--toolbar); }
+#extPanel header { display: flex; align-items: center; gap: 4px; padding: 6px 10px; font-weight: 600; font-size: 14px; border-bottom: 1px solid var(--border); }
+#extPanel header span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#xpBody { flex: 1; position: relative; }
+#xpBody webview { position: absolute; inset: 0; width: 100%; height: 100%; visibility: hidden; border: 0; }
+#xpBody webview.on { visibility: visible; }
+#extPanel .xp-resize { position: absolute; top: 0; bottom: 0; inset-inline-start: -3px; width: 6px; cursor: ew-resize; z-index: 2; }
+body.xp-dragging webview { pointer-events: none; }
+body.fs #extPanel { display: none; }
+
+/* ---- شريط منصات العميل: تختار منصة منصة ---- */
+#clientSitesBar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 10px; background: var(--toolbar); border-bottom: 1px solid var(--border); }
+#clientSitesBar .csb-name { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; margin-inline-end: 4px; }
+#clientSitesBar .dot { width: 10px; height: 10px; border-radius: 50%; }
+#clientSitesBar button { display: flex; align-items: center; gap: 5px; padding: 3px 11px; border: 1px solid var(--border); border-radius: 14px; font-size: 12.5px; }
+#clientSitesBar button:hover { background: var(--hover); }
+#clientSitesBar button img { width: 14px; height: 14px; }
+#clientSitesBar .csb-site.open { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+#clientSitesBar .csb-site.cur { background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: var(--accent); }
+#clientSitesBar .csb-edit { margin-inline-start: auto; color: var(--muted); }
+#clientSitesBar .csb-hint { color: var(--muted); font-size: 12px; }
+body.fs #clientSitesBar { display: none; }
+
+/* ---- مسجّل الصوت النقي ---- */
+.rec-intro { color: var(--muted); font-size: 13px; line-height: 1.7; margin: 0 0 12px; }
+.rec-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; font-size: 13.5px; }
+.rec-sel { max-width: 230px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--input); color: inherit; }
+.rec-live { display: flex; align-items: center; gap: 10px; margin: 16px 0 8px; }
+.rec-meter { flex: 1; height: 10px; border-radius: 5px; background: var(--input); overflow: hidden; direction: ltr; }
+.rec-meter i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #1e8e3e, #fbbc04 75%, #d93025); transition: width .05s; }
+.rec-gate { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); opacity: .5; }
+.rec-gate.open { background: #1e8e3e; opacity: 1; }
+.rec-time { font-variant-numeric: tabular-nums; direction: ltr; }
+.rec-status { font-size: 13px; color: var(--muted); margin: 6px 0 10px; word-break: break-all; }
+.rec-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+.rec-actions button { padding: 7px 14px; border-radius: 18px; border: 1px solid var(--border); }
+.rec-btn.on { background: #d93025 !important; border-color: #d93025; color: #fff; }
+.rec-result audio { width: 100%; margin-top: 10px; }
+
+/* ---- أدوات المطور على اليمين ---- */
+#devDock { width: 520px; flex: none; display: flex; flex-direction: column; position: relative; border-inline-end: 1px solid var(--border); background: var(--toolbar); }
+#devDock header { display: flex; align-items: center; padding: 3px 8px; font-size: 12.5px; border-bottom: 1px solid var(--border); }
+#devDock header span { flex: 1; }
+#devDockBody { flex: 1; }
+#devDock .dd-resize { position: absolute; top: 0; bottom: 0; inset-inline-end: -3px; width: 6px; cursor: ew-resize; z-index: 2; }
+body.fs #devDock { display: none; }

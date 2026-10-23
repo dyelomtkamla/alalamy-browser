@@ -259,3 +259,56 @@ api.on('translate-selection', ({ text, target, choose }) => {
 });
 api.on('select-tab-wc', (id) => { const t = state.tabs.find(x => x.wcId === id); if (t) activate(t); });
 api.on('close-tab-wc', (id) => { const t = state.tabs.find(x => x.wcId === id); if (t) closeTab(t); });
+
+/* ---------------- لوحة الإضافة الجانبية (chrome.sidePanel) زي كروم: على الشمال ---------------- */
+function extPanelEl() {
+  let p = $('#extPanel');
+  if (p) return p;
+  p = el('div', { id: 'extPanel', class: 'hidden' },
+    el('div', { class: 'xp-resize', title: 'اسحب لتغيير العرض' }),
+    el('header', {}, el('span', { id: 'xpTitle' }), el('button', { id: 'xpClose', class: 'icon small2', title: 'إغلاق', onclick: () => closeExtPanel() })),
+    el('div', { id: 'xpBody' }));
+  $('#main').appendChild(p);
+  p.querySelector('#xpClose').innerHTML = icon('close');
+  try { const w = +localStorage.getItem('extPanelWidth'); if (w >= 280 && w <= 900) p.style.width = w + 'px'; } catch (_) { /* ignore */ }
+  const grip = p.querySelector('.xp-resize');
+  grip.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    const startX = e.clientX, startW = p.offsetWidth;
+    document.body.classList.add('xp-dragging');
+    const move = (ev) => { p.style.width = Math.max(280, Math.min(900, startW + (ev.clientX - startX))) + 'px'; };
+    const up = () => {
+      document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+      document.body.classList.remove('xp-dragging');
+      try { localStorage.setItem('extPanelWidth', String(p.offsetWidth)); } catch (_) { /* ignore */ }
+    };
+    document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+  });
+  return p;
+}
+function openExtPanel({ id, name, url, partition, toggle }) {
+  const p = extPanelEl();
+  if (toggle && !p.classList.contains('hidden') && p.dataset.ext === id) { closeExtPanel(); return; }
+  const body = p.querySelector('#xpBody');
+  let wv = body.querySelector(`webview[data-ext="${id}"][partition="${partition}"]`);
+  body.querySelectorAll('webview').forEach(x => x.classList.remove('on'));
+  if (!wv) {
+    wv = document.createElement('webview');
+    wv.dataset.ext = id;
+    wv.setAttribute('partition', partition);
+    wv.setAttribute('src', url);
+    body.appendChild(wv);
+  }
+  wv.classList.add('on');
+  p.dataset.ext = id;
+  p.querySelector('#xpTitle').textContent = name || 'الإضافة';
+  p.classList.remove('hidden');
+}
+function closeExtPanel(id) {
+  const p = $('#extPanel');
+  if (!p || (id && p.dataset.ext !== id)) return;
+  p.classList.add('hidden'); delete p.dataset.ext;
+}
+api.on('ext:sidepanel', openExtPanel);
+api.on('ext:sidepanel-close', closeExtPanel);
+window.__extPanel = { open: openExtPanel, close: closeExtPanel };

@@ -208,4 +208,5 @@ async function update() {
   return { output: out.trim().split(/\r?\n/).pop(), version: await version() };
 }
 
-module.exports = { probe, download, cancel, autoUpdate, version, update };
+function ffmpegPath() { const d = ffmpegDir(); return d ? path.join(d, 'ffmpeg' + EXE) : 'ffmpeg'; }
+module.exports = { probe, download, cancel, autoUpdate, version, update, ffmpegPath };

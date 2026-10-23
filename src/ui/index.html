@@ -47,6 +47,7 @@
   </div>
 
   <div id="bookmarksbar"></div>
+  <div id="clientSitesBar" class="hidden"></div>
 
   <div id="crashbar" class="bar hidden">
     <span data-icon="reset"></span>
@@ -149,6 +150,7 @@
     <hr>
     <button data-act="print"><i data-icon="print"></i>طباعة... <kbd>Ctrl+P</kbd></button>
     <button data-act="camera-reader"><i data-icon="camera"></i>قارئ الكاميرا والمايك (QR والعدسة)</button>
+    <button data-act="voice-recorder"><i data-icon="mic"></i>مسجّل الصوت النقي (قرآن، غناء، فويس)</button>
     <button data-act="lens-page"><i data-icon="lens"></i>البحث في علامة التبويب هذه باستخدام "عدسة Google"</button>
     <button data-act="translate-ar"><i data-icon="translate"></i>ترجمة...</button>
     <button data-sub="findedit"><i data-icon="findpage"></i>بحث وتعديل</button>
@@ -218,6 +220,8 @@
     <div class="popup submenu hidden" data-menu="alalamy">
       <button data-act="learn"><i data-icon="learn"></i>اتعلّم وانت بتتصفح (إعلانات وبرمجة) <kbd>Ctrl+Shift+L</kbd></button>
       <button data-act="download-video"><i data-icon="video"></i>تحميل فيديو أو صوت MP3 من الصفحة</button>
+      <button data-act="voice-recorder"><i data-icon="mic"></i>مسجّل الصوت النقي من غير دوشة</button>
+      <button data-act="import-passwords"><i data-icon="key"></i>استيراد كلمات المرور من جوجل</button>
       <button data-act="pip"><i data-icon="pip"></i>الفيديو في نافذة صغيرة</button>
       <button data-act="toggle-sidebar"><i data-icon="chat"></i>الشريط الجانبي (واتساب وماسنجر وتليجرام)</button>
       <button data-act="show-translator"><i data-icon="translate"></i>المترجم</button>
@@ -253,6 +257,8 @@
   <script src="chromemenu.js"></script>
   <script src="jsQR.js"></script>
   <script src="camera.js"></script>
+  <script src="recorder.js"></script>
+  <script src="devtools.js"></script>
   <script src="extras.js"></script>
   <script src="learn.js"></script>
   <script src="context.js"></script>

@@ -225,8 +225,20 @@ async function afPasswordsPage() {
       el('div', { class: 'btnrow afGenRow' }, gen,
         el('button', { onclick: newPw }, '↻ جديدة'),
         el('button', { class: 'primary', onclick: async () => { await navigator.clipboard.writeText(gen.value); toast('تم نسخ كلمة المرور'); } }, 'نسخ'))),
+    card(settingRow('استيراد كلمات المرور من جوجل', 'هات كل الباسوردات اللي متسجلة على حساب جوجل (أو كروم) في خطوتين: ١) افتح صفحة جوجل ودوس «تصدير كلمات المرور» (Export passwords) هتنزل ملف CSV. ٢) دوس «اختار الملف» هنا.', null),
+      el('div', { class: 'btnrow' },
+        el('button', { onclick: () => createTab({ url: 'https://passwords.google.com/options?ep=1' }) }, '١) افتح صفحة التصدير في جوجل'),
+        el('button', { class: 'primary', onclick: () => importPasswordsUI() }, '٢) اختار الملف (CSV)'))),
     card(embedPanel('passwords')));
 }
+async function importPasswordsUI() {
+  const r = await api.importPasswords({});
+  if (!r || r.canceled) return;
+  if (!r.ok) { toast('ماتستوردتش: ' + (r.error || '')); return; }
+  toast(`تم: اتضاف ${r.added} كلمة مرور` + (r.updated ? ` واتحدّث ${r.updated}` : '') + (r.deleted ? '، واتمسح ملف CSV' : ''));
+  if (state.panel === 'passwords') openPanel('passwords');
+}
+commands['import-passwords'] = () => { if (typeof openSettingsPage === 'function') openSettingsPage('autofill'); importPasswordsUI(); };
 function afPasskeysPage() {
   const main = afSubHeader('مفاتيح المرور');
   main.append(card(

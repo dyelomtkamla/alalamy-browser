@@ -2,7 +2,7 @@
 // إلكترون 36+ نقل دوال الإضافات لـ session.extensions
 const exts = (ses) => ses.extensions || ses;
 // دعم إضافات كروم: سوق إضافات كروم الرسمي + واجهات chrome.tabs/الأزرار/النوافذ المنبثقة لكل حساب
-const { app, session, dialog } = require('electron');
+const { app, session, dialog, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { ElectronChromeExtensions } = require('electron-chrome-extensions');
@@ -15,8 +15,129 @@ const pendingTabs = [];        // تبويبات طلبتها إضافة ونن�
 
 const extensionsPath = () => path.join(app.getPath('userData'), 'Extensions');
 
+// ---- chrome.sidePanel (لوحة الإضافة الجانبية زي كروم) ----
+const spOptions = new Map(); // extensionId -> { path, enabled }
+function spExtension(ses, id) { try { return exts(ses).getExtension(id); } catch { return null; } }
+function spBehavior(id) { const b = (hooks.getSettings().extPanelBehavior || {})[id]; return typeof b === 'boolean' ? b : null; }
+function spInfo(ses, id) {
+  const e = spExtension(ses, id); if (!e) return null;
+  const m = e.manifest || {};
+  const o = spOptions.get(id) || {};
+  const p = o.path || (m.side_panel && m.side_panel.default_path);
+  if (!p || o.enabled === false) return null;
+  const partition = [...byPartition.keys()].find(k => session.fromPartition(k) === ses) || 'persist:default';
+  return { id, name: list().find(x => x.id === id)?.name || m.name || e.name, url: new URL(p, `chrome-extension://${id}/`).href, partition };
+}
+function spOpen(ses, id, win, toggle) {
+  const info = spInfo(ses, id); if (!info) return false;
+  const w = (win && !win.isDestroyed()) ? win : hooks.getWindow();
+  if (w && !w.isDestroyed()) w.webContents.send('ext:sidepanel', { ...info, toggle: !!toggle });
+  return true;
+}
+async function spHandle(ses, id, method, arg, win) {
+  if (!id) return undefined;
+  const a = arg || {};
+  switch (method) {
+    case 'setPanelBehavior':
+      if (typeof a.openPanelOnActionClick === 'boolean') {
+        hooks.saveSettings({ extPanelBehavior: { ...(hooks.getSettings().extPanelBehavior || {}), [id]: a.openPanelOnActionClick } });
+      }
+      return undefined;
+    case 'getPanelBehavior': return { openPanelOnActionClick: !!spBehavior(id) };
+    case 'setOptions': {
+      const o = { ...(spOptions.get(id) || {}) };
+      if (typeof a.path === 'string') o.path = a.path;
+      if (typeof a.enabled === 'boolean') o.enabled = a.enabled;
+      spOptions.set(id, o);
+      return undefined;
+    }
+    case 'getOptions': {
+      const m = (spExtension(ses, id) || {}).manifest || {};
+      const o = spOptions.get(id) || {};
+      return { path: o.path || (m.side_panel && m.side_panel.default_path), enabled: o.enabled !== false };
+    }
+    case 'open': spOpen(ses, id, win, false); return undefined;
+    case 'close': { const w = win || hooks.getWindow(); if (w && !w.isDestroyed()) w.webContents.send('ext:sidepanel-close', id); return undefined; }
+    case 'getLayout': return { side: 'left' };
+    default: return undefined;
+  }
+}
+const idFromUrl = (u) => (/^chrome-extension:\/\/([a-p]{32})\//.exec(u || '') || [])[1];
+
+/* الـ preload مش بيشتغل جوه service worker الإضافات (إلكترون 44)، فإضافة زي Claude اللي بتنادي
+   chrome.sidePanel أول ما تشتغل كانت بتقع. الحل: بنضيف قبل سكربت الخلفية بتاعها ملف صغير بيعرّف chrome.sidePanel. */
+const SW_SHIM = '__alalamy_sw.js', SP_SHIM = '__alalamy_sp.js';
+const SP_SHIM_CODE = `(() => {
+  const c = globalThis.chrome;
+  if (!c || c.sidePanel) return;
+  let behavior = { openPanelOnActionClick: false };
+  const opts = {};
+  const m = (c.runtime && c.runtime.getManifest && c.runtime.getManifest()) || {};
+  const done = (v, cb) => { if (typeof cb === 'function') { try { cb(v); } catch (e) {} return undefined; } return Promise.resolve(v); };
+  const ev = () => ({ addListener() {}, removeListener() {}, hasListener() { return false; }, hasListeners() { return false; } });
+  try {
+    Object.defineProperty(c, 'sidePanel', { enumerable: true, configurable: true, value: {
+      setPanelBehavior: (b, cb) => { behavior = Object.assign({}, behavior, b || {}); return done(undefined, cb); },
+      getPanelBehavior: (cb) => done(Object.assign({}, behavior), cb),
+      setOptions: (o, cb) => { Object.assign(opts, o || {}); return done(undefined, cb); },
+      getOptions: (o, cb) => { if (typeof o === 'function') cb = o; return done({ path: opts.path || (m.side_panel && m.side_panel.default_path), enabled: opts.enabled !== false }, cb); },
+      open: (o, cb) => done(undefined, typeof o === 'function' ? o : cb),
+      close: (o, cb) => done(undefined, typeof o === 'function' ? o : cb),
+      getLayout: (cb) => done({ side: 'left' }, cb),
+      onOpened: ev(), onClosed: ev()
+    } });
+  } catch (e) {}
+})();
+`;
+function needsShim(m) {
+  const sw = m && m.background && m.background.service_worker;
+  return !!sw && (!!m.side_panel || (Array.isArray(m.permissions) && m.permissions.includes('sidePanel')));
+}
+// بيرجع true لو غيّر حاجة
+function patchExtensionDir(dir) {
+  try {
+    const mf = path.join(dir, 'manifest.json');
+    const m = JSON.parse(fs.readFileSync(mf, 'utf8').replace(/^\uFEFF/, ''));
+    if (!needsShim(m)) return false;
+    const bg = m.background;
+    let orig = bg.service_worker;
+    const origFile = path.join(dir, '__alalamy_orig.txt');
+    if (orig === SW_SHIM) { try { orig = fs.readFileSync(origFile, 'utf8').trim(); } catch { return false; } }
+    if (!orig || orig.includes('..') || !fs.existsSync(path.join(dir, orig))) return false;
+    const rel = './' + orig.replace(/^\.?\//, '');
+    const shim = bg.type === 'module'
+      ? `import './${SP_SHIM}';\nimport '${rel}';\n`
+      : `importScripts('${SP_SHIM}');\nimportScripts('${rel.slice(2)}');\n`;
+    let changed = false;
+    const write = (f, txt) => { const p = path.join(dir, f); try { if (fs.readFileSync(p, 'utf8') === txt) return; } catch { /* جديد */ } fs.writeFileSync(p, txt); changed = true; };
+    write(SP_SHIM, SP_SHIM_CODE);
+    write(SW_SHIM, shim);
+    write('__alalamy_orig.txt', orig);
+    if (bg.service_worker !== SW_SHIM) { bg.service_worker = SW_SHIM; fs.writeFileSync(mf, JSON.stringify(m, null, 2)); changed = true; }
+    return changed;
+  } catch { return false; }
+}
+function patchInstalledExtensions() {
+  const root = extensionsPath();
+  let ids = [];
+  try { ids = fs.readdirSync(root); } catch { return; }
+  for (const id of ids) {
+    let vers = [];
+    try { vers = fs.readdirSync(path.join(root, id)); } catch { continue; }
+    for (const v of vers) if (fs.existsSync(path.join(root, id, v, 'manifest.json'))) patchExtensionDir(path.join(root, id, v));
+  }
+}
+
 function init(h) {
   hooks = h;
+  patchInstalledExtensions();
+  // من صفحات الإضافة (لوحتها أو الـ popup)
+  ipcMain.handle('alalamy-sp', (e, method, arg) => {
+    const url = (e.senderFrame && e.senderFrame.url) || e.sender.getURL();
+    let win = null;
+    try { const host = e.sender.hostWebContents; win = require('electron').BrowserWindow.fromWebContents(host || e.sender); } catch { /* ignore */ }
+    return spHandle(e.sender.session, idFromUrl(url), method, arg, win);
+  });
   // أيقونات الإضافات في شريط الأدوات تُعرض عبر بروتوكول crx:// داخل جلسة الواجهة
   ElectronChromeExtensions.handleCRXProtocol(session.defaultSession);
 }
@@ -40,6 +161,20 @@ async function propagate(ext) {
 function setup(partition) {
   if (byPartition.has(partition)) return;
   const ses = session.fromPartition(partition);
+  // لازم تتسجل قبل مكتبة الإضافات علشان نضيف chrome.sidePanel قبل ما تجمّد chrome
+  try {
+    const file = path.join(__dirname, 'sidepanel-preload.js');
+    ses.registerPreloadScript({ id: 'alalamy-sp-frame', type: 'frame', filePath: file });
+    ses.registerPreloadScript({ id: 'alalamy-sp-sw', type: 'service-worker', filePath: file });
+  } catch (err) { console.error('sidepanel preload', err); }
+  const spWorkers = new WeakSet();
+  ses.serviceWorkers.on('running-status-changed', ({ runningStatus, versionId }) => {
+    if (runningStatus !== 'starting') return;
+    const sw = ses.serviceWorkers.getWorkerFromVersionID(versionId);
+    if (!sw || spWorkers.has(sw) || !String(sw.scope || '').startsWith('chrome-extension://')) return;
+    spWorkers.add(sw);
+    try { sw.ipc.handle('alalamy-sp', (_e, method, arg) => spHandle(ses, idFromUrl(sw.scope), method, arg, null)); } catch { /* ignore */ }
+  });
   const ext = new ElectronChromeExtensions({
     license: 'GPL-3.0',
     session: ses,
@@ -58,7 +193,40 @@ function setup(partition) {
   });
   byPartition.set(partition, ext);
 
-  ses.on('extension-loaded', (_e, extension) => { propagate(extension); });
+  // الضغط على أيقونة إضافة ليها لوحة جانبية (زي Claude) يفتح اللوحة على الشمال زي كروم
+  const ba = ext.api && ext.api.browserAction;
+  if (ba && typeof ba.activateClick === 'function') {
+    const orig = ba.activateClick.bind(ba);
+    ba.activateClick = (details) => {
+      try {
+        const id = details.extensionId;
+        const m = (spExtension(ses, id) || {}).manifest || {};
+        const b = spBehavior(id);
+        const tab = details.tabId >= 0 ? ba.ctx.store.getTabById(details.tabId) : ba.ctx.store.getActiveTabOfCurrentWindow();
+        const hasPopup = tab ? !!ba.getPopupUrl(id, tab.id) : !!(m.action || m.browser_action || {}).default_popup;
+        // كروم: openPanelOnActionClick. لو الإضافة ماقالتش، ولها لوحة ومالهاش popup → نفتح اللوحة
+        if (b === true || (b === null && !hasPopup && m.side_panel && m.side_panel.default_path)) {
+          const win = tab ? ba.ctx.store.tabToWindow.get(tab) : null;
+          if (spOpen(ses, id, win, true)) return;
+        }
+      } catch (err) { console.error('sidepanel click', err); }
+      return orig(details);
+    };
+  }
+
+  ses.on('extension-loaded', (_e, extension) => {
+    // إضافة لسه متثبتة من السوق ومحتاجة chrome.sidePanel: نعدّلها ونحمّلها تاني مرة واحدة
+    if (extension.path && extension.path.startsWith(extensionsPath()) && patchExtensionDir(extension.path)) {
+      setTimeout(async () => {
+        for (const s2 of [session.fromPartition('persist:default'), ...sessionsLoaded()]) {
+          if (!exts(s2).getExtension(extension.id)) continue;
+          try { exts(s2).removeExtension(extension.id); await exts(s2).loadExtension(extension.path, { allowFileAccess: true }); } catch { /* ignore */ }
+        }
+      }, 300);
+      return;
+    }
+    propagate(extension);
+  });
 
   installChromeWebStore({
     session: ses,

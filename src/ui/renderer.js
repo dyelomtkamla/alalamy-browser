@@ -180,6 +180,7 @@ function moveTab(tab, delta) {
 }
 function sleepTab(tab) {
   if (!tab.webview || tab === state.active || tab.url === NEWTAB) return false;
+  if (state.settings.backgroundAudio !== false && tab.tabEl.classList.contains('playing')) return false; // بيشغل صوت في الخلفية
   tab.webview.remove();
   tab.webview = null; tab.ready = false; tab.loading = false;
   tab.tabEl.classList.remove('loading');
@@ -292,6 +293,7 @@ function activate(tab) {
   document.title = (tab.webview ? tab.title : 'تبويب جديد') + ' - متصفح العالمي';
   updateNav();
   if (typeof onTabActivated === 'function') onTabActivated(tab);
+  if (typeof window.devtoolsOnActivate === 'function') window.devtoolsOnActivate(tab);
   if (!tab.webview) { renderSpeedDial(); setTimeout(() => $('#ntInput').focus(), 0); }
   else if (!state.grid) setTimeout(() => tab.webview && tab.webview.focus(), 0);
   saveSession();
@@ -403,6 +405,17 @@ async function navigate(input, tab = state.active) {
   activate(tab);
 }
 
+// زي كروم: الرابط العربي يتعرض بالحروف العربي مش %D8%B4...، والمسافات تفضل %20
+function displayUrl(u) {
+  if (!/%[89A-F][0-9A-F]/i.test(u || '')) return u;
+  try {
+    return u.replace(/(?:%[0-9A-F]{2})+/gi, (m) => {
+      try { return decodeURIComponent(m).replace(/[\u0000-\u0020\u007f%#?&=+/;:@$,\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, (c) => encodeURIComponent(c)); } catch (_) { return m; }
+    });
+  } catch (_) { return u; }
+}
+window.displayUrl = displayUrl;
+
 function updateNav() {
   const tab = state.active; if (!tab) return;
   document.body.classList.toggle('incognito', !!tab.temp);
@@ -414,7 +427,7 @@ function updateNav() {
   // زي كروم: علامة التحميل بتلف على أيقونة التبويب، وزرار التحديث بيبقى ✕ للإيقاف
   const rl = tab.loading ? 'close' : 'reload';
   if ($('#reloadBtn').dataset.state !== rl) { $('#reloadBtn').dataset.state = rl; $('#reloadBtn').innerHTML = icon(rl); $('#reloadBtn').title = tab.loading ? 'إيقاف التحميل' : 'إعادة تحميل (F5)'; }
-  if (document.activeElement !== $('#address')) $('#address').value = tab.url === NEWTAB ? '' : tab.url;
+  if (document.activeElement !== $('#address')) $('#address').value = tab.url === NEWTAB ? '' : displayUrl(tab.url);
   const secure = /^https:/.test(tab.url);
   $('#secureIcon').innerHTML = icon(tab.url === NEWTAB ? 'search' : (secure ? 'lock' : 'info'));
   $('#secureIcon').title = secure ? 'الاتصال آمن' : '';
@@ -839,6 +852,12 @@ function bind() {
 
   const addr = $('#address');
   addr.addEventListener('focus', () => addr.select());
+  // نسخ الرابط كله يدي الرابط الأصلي اللي بيشتغل في أي مكان (زي كروم)
+  addr.addEventListener('copy', (e) => {
+    const cur = state.active && state.active.url;
+    if (!cur || addr.selectionStart !== 0 || addr.selectionEnd !== addr.value.length || addr.value !== displayUrl(cur) || addr.value === cur) return;
+    e.preventDefault(); e.clipboardData.setData('text/plain', cur);
+  });
   addr.addEventListener('input', () => showSuggestions(addr.value));
   addr.addEventListener('blur', () => setTimeout(hideSuggestions, 150));
   addr.addEventListener('keydown', (e) => {
@@ -850,7 +869,9 @@ function bind() {
       const s = sugItems[sugSel]; if (s && !s.search) addr.value = s.url;
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      const v = addr.value; addr.blur();
+      let v = addr.value; addr.blur();
+      const cur = state.active && state.active.url;
+      if (cur && v === displayUrl(cur)) v = cur; // نفس الرابط المعروض بالعربي → الرابط الأصلي
       if (e.altKey) createTab({ url: v }); // Alt+Enter في تبويب جديد
       navigate(v);
     } else if (e.key === 'Escape') { hideSuggestions(); updateNav(); addr.blur(); }
@@ -946,7 +967,9 @@ async function start() {
     state.client = clientById(CLIENT_WIN) ? CLIENT_WIN : null;
     if (s && Array.isArray(s.tabs) && s.tabs.length) restoreWindowTabs(s);
     const c = clientById(CLIENT_WIN);
-    if (c && (init.openSites || !state.tabs.length)) openClientSites(c, (init.openSites && init.openSites.only) || undefined);
+    // المنصات مش بتتفتح لوحدها: بس اللي اخترتها (من شريط المنصات أو «فتح كل منصات»)
+    const only = init.openSites && init.openSites.only;
+    if (c && Array.isArray(only) && only.length) openClientSites(c, only);
     if (!state.tabs.length) createTab({});
   } else if (!INCOGNITO_WIN && s && Array.isArray(s.tabs) && s.tabs.length && !api.smokeTest) {
     restoreWindowTabs(s);

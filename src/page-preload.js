@@ -111,6 +111,29 @@ try {
   else webFrame.executeJavaScript(NO_CONDITIONAL_PASSKEYS);
 } catch { /* ignore */ }
 
+/* تشغيل الصوت في الخلفية زي يوتيوب بريميوم: الصفحة دايمًا شايفة نفسها ظاهرة،
+   فالمواقع (يوتيوب، ساوند كلاود، الراديو...) ماتوقفش الصوت لما تصغّر المتصفح أو تروح لتبويب تاني */
+const BG_AUDIO = `(() => {
+  try {
+    const D = Document.prototype;
+    Object.defineProperty(D, 'hidden', { configurable: true, get() { return false; } });
+    Object.defineProperty(D, 'webkitHidden', { configurable: true, get() { return false; } });
+    Object.defineProperty(D, 'visibilityState', { configurable: true, get() { return 'visible'; } });
+    Object.defineProperty(D, 'webkitVisibilityState', { configurable: true, get() { return 'visible'; } });
+    const stop = (e) => { e.stopImmediatePropagation(); };
+    for (const t of ['visibilitychange', 'webkitvisibilitychange', 'freeze']) {
+      window.addEventListener(t, stop, true); document.addEventListener(t, stop, true);
+    }
+  } catch (e) {}
+})();`;
+try {
+  if (process.isMainFrame && ipcRenderer.sendSync('bgaudio:on')) {
+    const { contextBridge, webFrame } = require('electron');
+    if (contextBridge.executeInMainWorld) contextBridge.executeInMainWorld({ func: new Function(BG_AUDIO) });
+    else webFrame.executeJavaScript(BG_AUDIO);
+  }
+} catch { /* ignore */ }
+
 // الإطارات الداخلية (iframe) محتاجة الحماية دي بس: فيسبوك بيطلب مفتاح المرور من إطار مخفي تبع accounts.meta.com
 // باقي الملف (حفظ الباسورد، الفيديو، الاختصارات...) للصفحة الرئيسية فقط
 if (!process.isMainFrame) return;
@@ -517,13 +540,18 @@ function linkFromVideo(v, s) {
   const own = v.closest('a[href]');
   if (own && s && s.link.test(pathOf(own.href))) return own.href;
   if (s && /tiktok/.test(location.hostname)) {
-    // الأول: لينك فيديو جوه نفس البوست، وبعدين رقم الفيديو من عناصر الصفحة
-    for (let el = v.parentElement, i = 0; el && i < 12; el = el.parentElement, i++) {
-      const a = [...el.querySelectorAll('a[href*="/video/"]')].find(x => s.link.test(pathOf(x.href)));
-      if (a) return a.href;
-    }
+    // الأول رقم الفيديو من العناصر اللي حوالين المشغّل نفسه
     const t = tiktokFromVideo(v);
     if (t) return t;
+    // وبعدين لينك فيديو جوه نفس البوست. بنوقف أول ما نوصل لجزء فيه لينكات فيديوهات تانية
+    // (زي «You may like» جنب الفيديو) علشان مانحمّلش الفيديو اللي بعده
+    for (let el = v.parentElement, i = 0; el && i < 12; el = el.parentElement, i++) {
+      const links = [...new Set([...el.querySelectorAll('a[href*="/video/"]')].filter(x => s.link.test(pathOf(x.href))).map(x => x.href.split(/[?#]/)[0]))];
+      if (links.length > 1 || [...el.querySelectorAll('video')].length > 1) break;
+      if (links.length === 1) return links[0];
+    }
+    // صفحة فيديو (مش الفيد): رابط الصفحة هو الفيديو اللي شغال
+    if (s.page.test(location.pathname)) return location.href;
   }
   if (s) {
     for (let el = v.parentElement, i = 0; el && i < 40; el = el.parentElement, i++) {

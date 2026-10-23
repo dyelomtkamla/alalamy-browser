@@ -2,7 +2,7 @@
 // متصفح العالمي - العملية الرئيسية (Electron / Chromium)
 const {
   app, BrowserWindow, ipcMain, session, safeStorage, Menu, clipboard,
-  shell, dialog, nativeTheme, net, systemPreferences, webContents: allWebContents
+  shell, dialog, nativeTheme, net, systemPreferences, webContents: allWebContents, desktopCapturer, WebContentsView
 } = require('electron');
 const path = require('path');
 const downloader = require('./downloader');
@@ -223,6 +223,24 @@ function setupSession(partition) {
     askPermission(wc, permission, details, partition).then(done, () => cb(false));
   });
 
+  // مشاركة الشاشة في المكالمات (فيسبوك/ميت/زوم ويب): بنسأل الأول وبعدين نشارك الشاشة كلها مع صوت الجهاز على ويندوز
+  try {
+    ses.setDisplayMediaRequestHandler((request, cb) => {
+      let wc = null; try { wc = request.frame ? allWebContents.fromFrame(request.frame) : null; } catch { /* ignore */ }
+      const w = winOf(wc) || win;
+      const host = permHostOf((request.frame && request.frame.url) || request.securityOrigin || '');
+      dialog.showMessageBox(w, { type: 'question', buttons: ['مشاركة الشاشة', 'إلغاء'], defaultId: 0, cancelId: 1, title: 'مشاركة الشاشة',
+        message: `${host || 'الموقع'} عايز يشوف شاشتك`, detail: 'هيتشارك كل اللي على الشاشة لحد ما تقفل المشاركة من الموقع.' })
+        .then(({ response }) => {
+          if (response !== 0) return cb({});
+          return desktopCapturer.getSources({ types: ['screen'] }).then((src) => {
+            if (!src.length) return cb({});
+            cb(process.platform === 'win32' ? { video: src[0], audio: 'loopback' } : { video: src[0] });
+          });
+        }).catch(() => cb({}));
+    }, { useSystemPicker: true });
+  } catch (err) { console.error('display media', err); }
+
   ses.on('will-download', (_e, item) => {
     const id = 'd' + Date.now() + Math.random().toString(36).slice(2, 6);
     let dir = store.settings.downloadDir;
@@ -401,7 +419,11 @@ function setupWindow(win, incognito) {
   // تأمين الـ webview: لا يمكن للواجهة تحديد preload أو تفعيل node داخل الصفحات
   win.webContents.on('will-attach-webview', (_e, webPreferences, params) => {
     delete webPreferences.preloadURL;
-    webPreferences.preload = path.join(__dirname, 'page-preload.js');
+    // لوحة الإضافة الجانبية (زي Claude): صفحة إضافة، واجهات chrome بتيجي من مكتبة الإضافات مش من page-preload
+    const extPanel = /^chrome-extension:\/\/[a-p]{32}\//.test(params.src || '');
+    win.__nextExtPanel = extPanel;
+    if (extPanel) delete webPreferences.preload;
+    else webPreferences.preload = path.join(__dirname, 'page-preload.js');
     webPreferences.nodeIntegration = false;
     // الـ preload يشتغل كمان جوه الإطارات الداخلية علشان حماية مفاتيح المرور (فيسبوك/ميتا بتطلبها من iframe)
     webPreferences.nodeIntegrationInSubFrames = true;
@@ -414,6 +436,7 @@ function setupWindow(win, incognito) {
 
   win.webContents.on('did-attach-webview', (_e, guest) => {
     setupGuest(guest);
+    if (win.__nextExtPanel) { win.__nextExtPanel = false; return; }
     extensions.addTab(guest, partitionOfWebContents(guest));
   });
   win.webContents.on('before-input-event', (e, input) => handleShortcut(e, input, win.webContents));
@@ -464,6 +487,7 @@ function handleShortcut(e, input, wc) {
   if (action === 'open-menu' && input.isAutoRepeat) return;
   sendTo(wc, 'shortcut', action);
 }
+ipcMain.on('bgaudio:on', (e) => { e.returnValue = store.settings.backgroundAudio !== false; });
 ipcMain.on('page:shortcut', (e, action) => {
   if (typeof action === 'string' && PAGE_FIRST.has(action)) sendTo(e.sender, 'shortcut', action);
 });
@@ -481,6 +505,9 @@ function setupGuest(guest) {
       if (/Electron\//.test(ua) && !guest.__uaReload) { guest.__uaReload = true; guest.reload(); }
     }).catch(() => {});
   });
+  // تشغيل الصوت في الخلفية: التبويب اللي بيشغل صوت مايتبطّأش لما النافذة تتصغر أو التبويب يستخبى
+  guest.on('media-started-playing', () => { if (store.settings.backgroundAudio !== false) try { guest.setBackgroundThrottling(false); } catch { /* ignore */ } });
+  guest.on('media-paused', () => { try { guest.setBackgroundThrottling(true); } catch { /* ignore */ } });
   // بعد كل تنقل (زي تسجيل الدخول في جيميل) نكتب الكوكيز على الهارد على طول
   guest.on('did-navigate', () => scheduleFlush());
 
@@ -608,7 +635,7 @@ function pageMenu(guest, p) {
   const extItems = extensions.contextMenuItems(guest, partition, p);
   if (extItems.length) add(...extItems);
   add(web && plainPage ? key('عرض مصدر الصفحة', 'CmdOrCtrl+U', { click: () => sendUI('open-tab', { url: 'view-source:' + p.pageURL, partition }) }) : null,
-    key('فحص', 'CmdOrCtrl+Shift+I', { click: () => guest.inspectElement(p.x, p.y) }));
+    key('فحص', 'CmdOrCtrl+Shift+I', { click: () => sendTo(guest, 'devtools:open', { wcId: guest.id, x: p.x, y: p.y }) }));
 
   const t = [];
   for (const g of groups) if (g.length) { if (t.length) t.push(sep); t.push(...g); }
@@ -726,6 +753,27 @@ function askPermission(wc, permission, details, partition) {
   if (keys.some(k => saved[k] === 'block')) return Promise.resolve(false);
   if (keys.every(k => saved[k] === 'allow')) return Promise.resolve(true);
   if (SMOKE_TEST) return Promise.resolve(false);
+  // نافذة منبثقة من الموقع (زي نافذة مكالمة فيسبوك/ماسنجر): مفيهاش شريط المتصفح، فبنسأل برسالة فوقها
+  // (قبل كده الطلب كان بيروح لصفحة الموقع نفسها فمكانش بيظهر ويترفض بعد دقيقتين → المكالمة من غير مايك وكاميرا)
+  const ownerWin = winOf(wc);
+  if (ownerWin && !windows.has(ownerWin)) {
+    const names = { camera: 'الكاميرا', microphone: 'الميكروفون', geolocation: 'موقعك الجغرافي', notifications: 'الإشعارات', 'clipboard-read': 'قراءة الحافظة', midiSysex: 'أجهزة MIDI' };
+    return dialog.showMessageBox(ownerWin, {
+      type: 'question', buttons: ['سماح', 'منع'], defaultId: 0, cancelId: 1,
+      title: 'إذن الموقع', message: `${host} عايز يستخدم: ${keys.map(k => names[k] || k).join(' و ')}`,
+      detail: 'لو دي مكالمة فيسبوك أو ماسنجر اختار «سماح» علشان الطرف التاني يسمعك ويشوفك.',
+      checkboxLabel: 'افتكر اختياري للموقع ده', checkboxChecked: true
+    }).then(({ response, checkboxChecked }) => {
+      const allow = response === 0;
+      if (checkboxChecked && !String(partition).startsWith('temp_')) {
+        const all = store.settings.sitePerms = Object.assign({}, store.settings.sitePerms);
+        const cur = all[host] = Object.assign({}, all[host]);
+        for (const k of keys) cur[k] = allow ? 'allow' : 'block';
+        writeJSON('settings.json', store.settings);
+      }
+      return allow;
+    }, () => false);
+  }
   return new Promise((resolve) => {
     const id = 'perm' + Date.now() + Math.random().toString(36).slice(2, 5);
     const timer = setTimeout(() => { pendingPerm.delete(id); resolve(false); }, 120000);
@@ -744,6 +792,84 @@ ipcMain.handle('perm:respond', (_e, { id, allow, remember } = {}) => {
     writeJSON('settings.json', store.settings);
   }
   p.resolve(!!allow);
+});
+// مسجّل الصوت النقي: WAV من الواجهة → التنزيلات/تسجيلات العالمي (MP3 بـ ffmpeg اللي جاي مع المتصفح)
+ipcMain.handle('rec:save', async (_e, { data, name, format } = {}) => {
+  try {
+    if (!(data instanceof Uint8Array) || data.length < 44 || data.length > 1024 * 1024 * 1024) return { ok: false, error: 'تسجيل فاضي' };
+    let dir = store.settings.downloadDir;
+    if (!dir || !fs.existsSync(dir)) dir = app.getPath('downloads');
+    dir = path.join(dir, 'تسجيلات العالمي');
+    fs.mkdirSync(dir, { recursive: true });
+    const base = String(name || 'تسجيل').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-').slice(0, 80) || 'تسجيل';
+    const uniq = (ext) => { let p = path.join(dir, base + ext); for (let i = 1; fs.existsSync(p); i++) p = path.join(dir, `${base} (${i})${ext}`); return p; };
+    const wav = uniq('.wav');
+    fs.writeFileSync(wav, Buffer.from(data));
+    if (format !== 'mp3') { shell.showItemInFolder(wav); return { ok: true, path: wav }; }
+    const mp3 = uniq('.mp3');
+    await new Promise((resolve, reject) => {
+      const p = require('child_process').spawn(downloader.ffmpegPath(), ['-y', '-hide_banner', '-loglevel', 'error', '-i', wav, '-codec:a', 'libmp3lame', '-b:a', '192k', mp3], { windowsHide: true });
+      let err = ''; p.stderr.on('data', d => { err += d; });
+      p.on('error', reject);
+      p.on('close', (code) => code === 0 ? resolve() : reject(new Error(err.trim().slice(-200) || 'ffmpeg ' + code)));
+    });
+    try { fs.unlinkSync(wav); } catch { /* ignore */ }
+    shell.showItemInFolder(mp3);
+    return { ok: true, path: mp3 };
+  } catch (err) { return { ok: false, error: String(err.message || err) }; }
+});
+/* أدوات المطور جوه النافذة على اليمين زي كروم (بدل نافذة لوحدها): WebContentsView فوق مكان محجوز في الواجهة */
+const dockedDevtools = new Map(); // guestId -> { view, win }
+function devtoolsRect(b) {
+  const n = (v) => Math.max(0, Math.round(Number(v) || 0));
+  return b ? { x: n(b.x), y: n(b.y), width: n(b.width), height: n(b.height) } : null;
+}
+function closeDockedDevtools(id) {
+  const d = dockedDevtools.get(id);
+  if (!d) return;
+  dockedDevtools.delete(id);
+  try { if (!d.win.isDestroyed()) d.win.contentView.removeChildView(d.view); } catch { /* ignore */ }
+  try { d.view.webContents.close(); } catch { /* ignore */ }
+}
+ipcMain.handle('devtools:open', (e, { wcId, bounds, x, y, console: toConsole } = {}) => {
+  const guest = allWebContents.fromId(Number(wcId));
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!guest || guest.isDestroyed() || !w || guest.hostWebContents !== e.sender) return false;
+  let d = dockedDevtools.get(guest.id);
+  if (!d || d.win !== w) {
+    if (d) closeDockedDevtools(guest.id);
+    if (guest.isDevToolsOpened()) guest.closeDevTools();
+    const view = new WebContentsView();
+    w.contentView.addChildView(view);
+    d = { view, win: w };
+    dockedDevtools.set(guest.id, d);
+    guest.setDevToolsWebContents(view.webContents);
+    guest.openDevTools();
+    guest.once('destroyed', () => closeDockedDevtools(guest.id));
+    view.webContents.once('destroyed', () => { if (dockedDevtools.get(guest.id) === d) dockedDevtools.delete(guest.id); });
+  }
+  for (const [id, o] of dockedDevtools) if (o.win === w) o.view.setVisible(id === guest.id);
+  const r = devtoolsRect(bounds);
+  if (r) d.view.setBounds(r);
+  if (Number.isFinite(x) && Number.isFinite(y)) guest.inspectElement(Math.round(x), Math.round(y));
+  if (toConsole) try { d.view.webContents.executeJavaScript('DevToolsAPI && DevToolsAPI.showPanel && DevToolsAPI.showPanel("console")').catch(() => {}); } catch { /* ignore */ }
+  return true;
+});
+ipcMain.handle('devtools:show', (e, { wcId, bounds } = {}) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  for (const [id, o] of dockedDevtools) {
+    if (o.win !== w) continue;
+    const on = id === Number(wcId);
+    o.view.setVisible(on);
+    if (on && bounds) o.view.setBounds(devtoolsRect(bounds));
+  }
+  return dockedDevtools.has(Number(wcId));
+});
+ipcMain.handle('devtools:close', (_e, wcId) => {
+  const guest = allWebContents.fromId(Number(wcId));
+  closeDockedDevtools(Number(wcId));
+  try { if (guest && !guest.isDestroyed() && guest.isDevToolsOpened()) guest.closeDevTools(); } catch { /* ignore */ }
+  return true;
 });
 ipcMain.handle('perm:list', () => store.settings.sitePerms || {});
 ipcMain.handle('perm:set', (_e, host, key, value) => {
@@ -1236,6 +1362,61 @@ ipcMain.handle('pw:respond', (_e, { id, action }) => {
     store.passwords.push({ id, origin: p.origin, never: true, username: '', partition: '', secret: encrypt(''), time: Date.now() });
   }
   writeJSON('passwords.json', store.passwords);
+});
+// استيراد كلمات المرور من ملف CSV بتاع جوجل (مدير كلمات مرور Google / كروم / إيدج / فايرفوكس)
+function parseCSV(text) {
+  const rows = []; let row = [], cell = '', q = false;
+  text = String(text).replace(/^\uFEFF/, '');
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) {
+      if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ',') { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+    else cell += ch;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter(r => r.some(c => c !== ''));
+}
+function importPasswordsCSV(text, partition = 'persist:default') {
+  const rows = parseCSV(text);
+  if (!rows.length) return { ok: false, error: 'الملف فاضي' };
+  const head = rows[0].map(h => h.trim().toLowerCase());
+  const col = (...names) => head.findIndex(h => names.includes(h));
+  const iu = col('url', 'origin', 'website', 'login_uri'), iname = col('username', 'login', 'login_username', 'user'), ipw = col('password', 'login_password');
+  if (iu < 0 || ipw < 0) return { ok: false, error: 'ده مش ملف كلمات مرور (لازم يبقى فيه عمود url و password)' };
+  let added = 0, updated = 0, skipped = 0;
+  for (const r of rows.slice(1)) {
+    const pw = r[ipw] || '';
+    let origin = '';
+    try { const raw = (r[iu] || '').trim(); const u = new URL(/^[a-z][\w+.-]*:/i.test(raw) ? raw : 'https://' + raw); origin = /^https?:$/.test(u.protocol) ? u.origin : ''; } catch { /* ignore */ }
+    if (!origin || !pw) { skipped++; continue; }
+    const username = iname >= 0 ? (r[iname] || '').trim() : '';
+    const old = store.passwords.find(x => !x.never && x.origin === origin && x.username === username && x.partition === partition);
+    if (old) { if (decrypt(old.secret) !== pw) { old.secret = encrypt(pw); old.time = Date.now(); updated++; } else skipped++; continue; }
+    store.passwords.push({ id: 'imp' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8), origin, username, partition, secret: encrypt(pw), time: Date.now(), imported: true });
+    added++;
+  }
+  writeJSON('passwords.json', store.passwords);
+  return { ok: true, added, updated, skipped };
+}
+ipcMain.handle('pw:import', async (e, { partition } = {}) => {
+  const w = BrowserWindow.fromWebContents(e.sender) || win;
+  const r = await dialog.showOpenDialog(w, { title: 'اختار ملف كلمات المرور اللي نزّلته من جوجل (CSV)', properties: ['openFile'], filters: [{ name: 'CSV', extensions: ['csv'] }] });
+  if (r.canceled || !r.filePaths[0]) return { ok: false, canceled: true };
+  const file = r.filePaths[0];
+  let text = '';
+  try { if (fs.statSync(file).size > 20 * 1024 * 1024) return { ok: false, error: 'الملف كبير جدًا' }; text = fs.readFileSync(file, 'utf8'); } catch (err) { return { ok: false, error: String(err.message || err) }; }
+  const res = importPasswordsCSV(text, typeof partition === 'string' && PARTITION_RE.test(partition) ? partition : 'persist:default');
+  if (res.ok) {
+    // الملف فيه كل كلمات المرور مكشوفة: بننصح بمسحه
+    const { response } = await dialog.showMessageBox(w, { type: 'warning', buttons: ['امسح الملف', 'سيبه'], defaultId: 0, cancelId: 1, title: 'تم الاستيراد',
+      message: `اتضاف ${res.added} كلمة مرور${res.updated ? ` واتحدّث ${res.updated}` : ''}.`,
+      detail: 'ملف CSV فيه كل كلمات المرور مكتوبة من غير تشفير. الأفضل تمسحه دلوقتي.' });
+    if (response === 0) { try { await shell.trashItem(file); res.deleted = true; } catch { try { fs.unlinkSync(file); res.deleted = true; } catch { /* ignore */ } } }
+  }
+  return res;
 });
 ipcMain.handle('pw:list', () => store.passwords.map(p => ({
   id: p.id, origin: p.origin, username: p.username, partition: p.partition, never: !!p.never, time: p.time

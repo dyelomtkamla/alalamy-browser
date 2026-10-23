@@ -99,7 +99,9 @@ const settingsSections = {
         selectOf([[0, 'أبداً'], [10, 'بعد 10 دقائق'], [30, 'بعد 30 دقيقة'], [60, 'بعد ساعة'], [180, 'بعد 3 ساعات']],
           Number(state.settings.sleepMinutes ?? 30), (v) => saveSetting({ sleepMinutes: Number(v) }))),
       settingRow('تنويم كل التبويبات دلوقتي', 'ما عدا التبويب المفتوح قدامك.',
-        el('button', { onclick: () => commands['sleep-all']() }, 'تنويم')))];
+        el('button', { onclick: () => commands['sleep-all']() }, 'تنويم')),
+      settingRow('تشغيل الصوت في الخلفية (زي يوتيوب بريميوم)', 'الفيديو والصوت يفضلوا شغالين لما تصغّر المتصفح أو تروح لتبويب تاني أو تقفل الشاشة. التبويب اللي بيشغل صوت مش بيتنوّم. (بيتطبق على الصفحات اللي تتفتح بعد التغيير)',
+        toggle('backgroundAudio')))];
   },
   appearance() {
     return [card(

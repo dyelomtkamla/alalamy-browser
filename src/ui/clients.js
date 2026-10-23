@@ -66,9 +66,7 @@ function switchClient(id) {
   setCurrentClient(id);
   const vis = visibleTabs();
   if (!vis.length) {
-    const c = currentClient();
-    if (c) openClientSites(c);
-    else createTab({ clientId: null });
+    createTab({ clientId: id }); // المنصات مش بتتفتح لوحدها: بتختارها من شريط المنصات
   } else {
     activate(vis.reduce((a, b) => ((b.lastActive || 0) > (a.lastActive || 0) ? b : a)));
   }
@@ -102,7 +100,36 @@ function openClientSites(c, only) {
   }
 }
 
+// شريط منصات العميل (تحت شريط العنوان في نافذته): كل منصة بتتفتح لما تدوس عليها، مش لوحدها
+function renderClientSitesBar() {
+  const bar = $('#clientSitesBar');
+  if (!bar) return;
+  const c = CLIENT_WIN ? clientById(CLIENT_WIN) : null;
+  bar.classList.toggle('hidden', !c);
+  if (!c) { bar.innerHTML = ''; return; }
+  const hosts = new Set(clientTabs(c.id).map(t => { try { return new URL(t.url).hostname; } catch { return ''; } }));
+  const act = state.active && (() => { try { return new URL(state.active.url).hostname; } catch { return ''; } })();
+  const sites = CLIENT_SITES.filter(s => (c.sites || []).includes(s.key));
+  const sig = c.id + '|' + sites.map(s => s.key).join(',') + '|' + [...hosts].join(',') + '|' + act;
+  if (bar.dataset.sig === sig) return;
+  bar.dataset.sig = sig;
+  bar.innerHTML = '';
+  bar.append(el('span', { class: 'csb-name' }, el('span', { class: 'dot', style: `background:${c.color}` }), el('bdi', {}, c.name)));
+  for (const s of sites) {
+    const h = new URL(s.url).hostname;
+    const img = el('img', { src: faviconFor(s.url), alt: '' });
+    img.onerror = () => img.remove();
+    const b = el('button', { class: 'csb-site' + (hosts.has(h) ? ' open' : '') + (act === h ? ' cur' : ''), title: (hosts.has(h) ? 'روح لـ ' : 'افتح ') + s.name, 'data-key': s.key,
+      onclick: () => { openClientSites(c, [s.key]); renderClientSitesBar(); } }, img, s.name);
+    bar.append(b);
+  }
+  if (!sites.length) bar.append(el('span', { class: 'csb-hint' }, 'مفيش منصات متعلّم عليها للعميل ده'));
+  bar.append(el('button', { class: 'csb-edit', title: 'تعديل منصات العميل', onclick: () => openClientDialog(c) }, '✎ تعديل المنصات'));
+}
+if (CLIENT_WIN) setInterval(renderClientSitesBar, 1200);
+
 function renderClientChip() {
+  renderClientSitesBar();
   const chip = $('#clientChip');
   if (!chip) return;
   chip.classList.toggle('hidden', INCOGNITO_WIN);
@@ -262,12 +289,9 @@ function openClientDialog(edit) {
       closeClientDialog();
       for (const t of state.tabs) renderTabBadge(t);
       renderClientChip();
-      // المنصات اللي اتعلم عليها جديد تتفتح للعميل على طول
-      if (added.length) {
-        openClientSites(clientById(edit.id), added);
-        layoutGrid();
-      }
-      toast(added.length ? `تم الحفظ، واتفتح ${added.length} منصة جديدة للعميل` : 'تم حفظ العميل');
+      // المنصات الجديدة بتظهر في شريط المنصات وانت تفتح اللي عايزه
+      renderClientSitesBar();
+      toast(added.length ? `تم الحفظ، والمنصات الجديدة ظهرت في شريط المنصات` : 'تم حفظ العميل');
       return;
     }
     const id = 'c_' + randomId();
@@ -275,8 +299,8 @@ function openClientDialog(edit) {
     closeClientDialog();
     const c = clientById(id);
     if (!c) return toast('تعذر إضافة العميل');
-    openClientSites(c);
-    toast(`اتعمل العميل «${c.name}» واتفتحت منصاته في نافذة لوحده. سجّل دخول حساباته مرة واحدة وهتفضل محفوظة ليه`);
+    api.openClientWindow(c.id, {});
+    toast(`اتعمل العميل «${c.name}» في نافذة لوحده. افتح أي منصة من شريط المنصات وسجّل دخولها مرة واحدة`);
   };
   const box = el('div', { class: 'cdialog', role: 'dialog' },
     el('h3', {}, edit ? 'تعديل العميل' : 'عميل جديد'),

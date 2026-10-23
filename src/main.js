@@ -37,10 +37,26 @@ function readJSON(name, fallback) {
   catch { return fallback; }
 }
 const writeTimers = {};
-function writeJSON(name, value, immediate = false, durable = false) {
-  const doWrite = () => {
-    const file = path.join(dataDir(), name);
-    const data = JSON.stringify(value, null, durable ? 0 : 1);
+const writeGen = {};   // رقم آخر كتابة لكل ملف: الكتابة القديمة ماتغطيش على أحدث منها
+const writeChain = {}; // الكتابات في الخلفية لنفس الملف بتمشي واحدة ورا التانية
+// الكتابة المؤجلة بتتعمل في الخلفية (مش في العملية الرئيسية): كل طلبات الشبكة في كل التبويبات
+// بتعدي على العملية الرئيسية، فأي كتابة متزامنة على الهارد (خصوصًا fsync) كانت بتأخر تحميل الفيديو
+async function writeInBackground(file, data, durable, isCurrent) {
+  const tmp = file + '.atmp';
+  const fh = await fs.promises.open(tmp, 'w');
+  try { await fh.writeFile(data); if (durable) await fh.sync(); } finally { await fh.close(); }
+  if (durable) await fs.promises.copyFile(file, file + '.bak').catch(() => { /* أول مرة */ });
+  // التبديل نفسه متزامن (سريع جدًا) علشان مايتداخلش مع كتابة فورية حصلت في النص
+  if (isCurrent()) fs.renameSync(tmp, file);
+  else fs.promises.unlink(tmp).catch(() => {});
+}
+function writeJSON(name, value, immediate = false, durable = false, delay = 400) {
+  const file = path.join(dataDir(), name);
+  const serialize = () => JSON.stringify(value, null, durable || name === 'history.json' ? 0 : 1);
+  clearTimeout(writeTimers[name]);
+  const gen = writeGen[name] = (writeGen[name] || 0) + 1;
+  if (immediate) {
+    const data = serialize();
     if (durable) {
       // الجلسة: نكتبها على الهارد فعلاً (fsync) علشان لو الكهربا قطعت الملف مايضيعش أو يبوظ
       const fd = fs.openSync(file + '.tmp', 'w');
@@ -48,10 +64,15 @@ function writeJSON(name, value, immediate = false, durable = false) {
       try { fs.copyFileSync(file, file + '.bak'); } catch { /* أول مرة */ }
     } else fs.writeFileSync(file + '.tmp', data);
     fs.renameSync(file + '.tmp', file);
-  };
-  clearTimeout(writeTimers[name]);
-  if (immediate) return doWrite();
-  writeTimers[name] = setTimeout(doWrite, 400);
+    return;
+  }
+  writeTimers[name] = setTimeout(() => {
+    if (writeGen[name] !== gen) return;
+    const data = serialize();
+    writeChain[name] = (writeChain[name] || Promise.resolve())
+      .then(() => writeInBackground(file, data, durable, () => writeGen[name] === gen))
+      .catch((err) => console.error('write', name, err.message));
+  }, delay);
 }
 
 const store = {};
@@ -149,7 +170,7 @@ function persistSession(immediate = false, clean = false) {
     const s = sessionNow(clean);
     // النافذة الأخيرة اتقفلت: نسيب آخر حالة محفوظة زي ما هي علشان تترجع المرة الجاية
     if (!s.windows.length) return;
-    try { writeJSON('session.json', s, true, true); } catch { /* ignore */ }
+    try { writeJSON('session.json', s, immediate, true, 0); } catch { /* ignore */ }
   };
   if (immediate) go(); else sessionWriteTimer = setTimeout(go, 250);
 }
@@ -1212,11 +1233,12 @@ ipcMain.handle('history:add', (_e, entry) => {
   const last = store.history[0];
   if (last && last.url === entry.url) { last.title = entry.title || last.title; last.time = Date.now(); }
   else store.history.unshift({ url: entry.url, title: String(entry.title || entry.url).slice(0, 300), time: Date.now() });
-  writeJSON('history.json', store.history);
+  // السجل ممكن يبقى كبير: بنكتبه بعد ما التصفح يهدى شوية بدل مع كل تنقل (يوتيوب بيعمل كذا تنقل لكل فيديو)
+  writeJSON('history.json', store.history, false, false, 3000);
 });
 ipcMain.handle('history:update-title', (_e, { url, title }) => {
   const h = store.history.find(x => x.url === url);
-  if (h && title) { h.title = String(title).slice(0, 300); writeJSON('history.json', store.history); }
+  if (h && title) { h.title = String(title).slice(0, 300); writeJSON('history.json', store.history, false, false, 3000); }
 });
 ipcMain.handle('history:list', (_e, q) => {
   q = String(q || '').toLowerCase();

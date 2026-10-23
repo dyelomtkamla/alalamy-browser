@@ -6,7 +6,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { app, ipcMain, net } = require('electron');
+const { app, ipcMain, net, utilityProcess } = require('electron');
 const { ElectronBlocker, adsAndTrackingLists } = require('@ghostery/adblocker-electron');
 const { parse: parseDomain } = require('tldts-experimental');
 
@@ -41,14 +41,30 @@ async function update(force = false) {
   let age = Infinity;
   try { age = Date.now() - fs.statSync(cachePath()).mtimeMs; } catch { /* first time */ }
   if (!force && age < UPDATE_EVERY) return false;
-  const fetchImpl = (url) => net.fetch(url, { cache: 'no-store' });
-  const fresh = await ElectronBlocker.fromLists(fetchImpl, LISTS,
-    { enableCompression: true, loadCosmeticFilters: true, loadNetworkFilters: true });
-  const bin = fresh.serialize();
+  const lists = await Promise.all(LISTS.map(async (url) => {
+    const r = await net.fetch(url, { cache: 'no-store' });
+    if (!r.ok) throw new Error(`${r.status} ${url}`);
+    return r.text();
+  }));
+  const bin = await parseInWorker(lists);
+  const fresh = ElectronBlocker.deserialize(bin);
   fs.writeFileSync(cachePath() + '.tmp', bin);
   fs.renameSync(cachePath() + '.tmp', cachePath());
   engine = fresh;
   return true;
+}
+
+// التحليل نفسه في عملية تانية علشان العملية الرئيسية (اللي كل طلبات الشبكة بتعدي عليها) ماتقفش
+function parseInWorker(lists) {
+  return new Promise((resolve, reject) => {
+    const child = utilityProcess.fork(path.join(__dirname, 'adblock-worker.js'), [], { serviceName: 'adblock-update' });
+    let done = false;
+    const finish = (fn, v) => { if (done) return; done = true; clearTimeout(timer); try { child.kill(); } catch { /* ignore */ } fn(v); };
+    const timer = setTimeout(() => finish(reject, new Error('timeout')), 2 * 60 * 1000);
+    child.once('message', (m) => m && m.ok ? finish(resolve, new Uint8Array(m.bin)) : finish(reject, new Error((m && m.error) || 'worker failed')));
+    child.once('exit', (code) => finish(reject, new Error('worker exited ' + code)));
+    child.postMessage({ lists, config: { enableCompression: true, loadCosmeticFilters: true, loadNetworkFilters: true } });
+  });
 }
 
 function hostOf(url) {

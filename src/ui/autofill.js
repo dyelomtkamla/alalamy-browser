@@ -314,7 +314,8 @@ settingsSections.privacy = () => {
   draw();
   cards.push(
     card(settingRow('إعدادات المواقع', 'زي كروم: كل موقع بيطلب إذن الكاميرا والمايك والموقع الجغرافي والإشعارات مرة واحدة، وتقدر تغيّر رأيك من هنا.', null), listBox),
-    card(settingRow('إرسال طلب «عدم التتبع» مع التصفح', 'زي كروم وفايرفوكس: بيبعت للمواقع إنك مش عايز تتتبع (Do Not Track و Global Privacy Control).', toggleOff('doNotTrack'))));
+    card(settingRow('إرسال طلب «عدم التتبع» مع التصفح', 'زي كروم وفايرفوكس: بيبعت للمواقع إنك مش عايز تتتبع (Do Not Track و Global Privacy Control).', toggleOff('doNotTrack'))),
+    card(settingRow('السماح بمفاتيح المرور (Passkeys)', 'مقفولة علشان رسالة ويندوز «أدخل مفتاح الأمان» ماتظهرش لوحدها في فيسبوك وسناب وغيرهم. شغّلها بس لو بتدخل بمفتاح أمان أو Windows Hello، وبعدها اعمل تحديث للصفحة.', toggleOff('allowPasskeys'))));
   return cards;
 };
 // زرار تشغيل افتراضه مقفول

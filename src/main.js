@@ -208,6 +208,21 @@ async function askMacMedia(types) {
   if (types.includes('audio')) ok = (await systemPreferences.askForMediaAccess('microphone')) && ok;
   return ok;
 }
+/* مفاتيح المرور (passkeys): مواقع زي فيسبوك وسناب شات بتطلبها أول ما الصفحة تفتح، والمتصفح مالوش قايمة الملء
+   التلقائي بتاعت كروم، فويندوز كان بيفتح رسالة «أدخل مفتاح الأمان» لوحده. بنقفلها من الأساس بسياسة الصلاحيات
+   (Permissions-Policy) على كل صفحة وإطار، فالموقع ياخد رفض فوري والرسالة ماتظهرش خالص.
+   سياسة الموقع نفسه بتفضل زي ما هي؛ بنزوّد سطرنا في الآخر وهو اللي بيكسب لنفس المفتاح. */
+const NO_PASSKEYS_POLICY = 'publickey-credentials-get=(), publickey-credentials-create=()';
+function blockPasskeys(details, result) {
+  if (store.settings.allowPasskeys) return result;
+  if (details.resourceType !== 'mainFrame' && details.resourceType !== 'subFrame') return result;
+  const headers = Object.assign({}, result.responseHeaders || details.responseHeaders || {});
+  const key = Object.keys(headers).find(k => k.toLowerCase() === 'permissions-policy') || 'Permissions-Policy';
+  const cur = headers[key];
+  headers[key] = [...(Array.isArray(cur) ? cur : cur ? [cur] : []), NO_PASSKEYS_POLICY];
+  return Object.assign({}, result, { responseHeaders: headers });
+}
+
 function setupSession(partition) {
   if (configured.has(partition)) return configured.get(partition);
   const ses = session.fromPartition(partition);
@@ -224,7 +239,7 @@ function setupSession(partition) {
     cb({ requestHeaders: h });
   });
 
-  adblock.attach(ses);
+  adblock.attach(ses, blockPasskeys);
   ses.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, cb) => {
     try { if (adblock.onBeforeRequest(details, cb)) return; } catch { /* ignore */ }
     try { sniffMedia(details); } catch { /* ignore */ }
@@ -1482,7 +1497,7 @@ ipcMain.handle('settings:save', (_e, s) => {
     if (typeof s.translateTo === 'string' && /^[a-zA-Z-]{2,8}$/.test(s.translateTo)) store.settings.translateTo = s.translateTo;
     if (['system', 'light', 'dark'].includes(s.theme)) { store.settings.theme = s.theme; nativeTheme.themeSource = s.theme; }
     if (Array.isArray(s.hiddenShortcuts)) store.settings.hiddenShortcuts = s.hiddenShortcuts.filter(x => typeof x === 'string').slice(-200);
-    for (const k of ['showBookmarksBar', 'askDownload', 'hardwareAcceleration', 'videoOverlay', 'showFeed', 'showSidebar', 'doNotTrack', 'showWidgets', 'httpsFirst']) if (typeof s[k] === 'boolean') store.settings[k] = s[k];
+    for (const k of ['showBookmarksBar', 'askDownload', 'hardwareAcceleration', 'videoOverlay', 'showFeed', 'showSidebar', 'doNotTrack', 'showWidgets', 'httpsFirst', 'allowPasskeys']) if (typeof s[k] === 'boolean') store.settings[k] = s[k];
     if (ZOOMS.includes(s.defaultZoom)) store.settings.defaultZoom = s.defaultZoom;
     if (s.downloadDir === '') store.settings.downloadDir = '';
     const ids = (v) => v.filter(x => typeof x === 'string' && /^[a-z]{2,12}$/.test(x)).slice(0, 30);

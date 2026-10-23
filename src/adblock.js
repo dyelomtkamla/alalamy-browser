@@ -105,11 +105,13 @@ function onBeforeRequest(details, cb) {
   return true;
 }
 
-function attach(ses) {
+function attach(ses, fixHeaders) {
   if (typeof ses.registerPreloadScript === 'function') {
     if (!ses.getPreloadScripts().some(p => p.filePath === PRELOAD)) ses.registerPreloadScript({ type: 'frame', filePath: PRELOAD });
   } else ses.setPreloads([...ses.getPreloads().filter(p => p !== PRELOAD), PRELOAD]);
-  ses.webRequest.onHeadersReceived({ urls: ['<all_urls>'] }, (details, cb) => {
+  ses.webRequest.onHeadersReceived({ urls: ['<all_urls>'] }, (details, done) => {
+    // مستمع واحد بس مسموح لكل جلسة، فتعديلات المتصفح نفسه على الهيدرز بتعدي من هنا كمان
+    const cb = fixHeaders ? (r) => done(fixHeaders(details, r || {})) : done;
     if (!activeFor(pageUrlOf(details)) && details.resourceType !== 'mainFrame') return cb({});
     if (details.resourceType === 'mainFrame' && !activeFor(details.url)) return cb({});
     engine.onHeadersReceived(details, cb);

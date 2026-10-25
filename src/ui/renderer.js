@@ -181,6 +181,7 @@ function moveTab(tab, delta) {
 function sleepTab(tab) {
   if (!tab.webview || tab === state.active || tab.url === NEWTAB) return false;
   if (state.settings.backgroundAudio !== false && tab.tabEl.classList.contains('playing')) return false; // بيشغل صوت في الخلفية
+  tab.wcId = null;
   tab.webview.remove();
   tab.webview = null; tab.ready = false; tab.loading = false;
   tab.tabEl.classList.remove('loading');
@@ -333,6 +334,7 @@ function showTabMenu(tab, x, y) {
     el('button', { onclick: () => { hidePopups(); closeMany(others); } }, `إغلاق التبويبات الأخرى (${others.length})`),
     el('button', { onclick: () => { hidePopups(); const v = visibleTabs(); closeMany(v.slice(v.indexOf(tab) + 1).filter(t => !t.pinned)); } }, 'إغلاق التبويبات اللي بعده'),
     el('button', { onclick: () => { hidePopups(); run('reopen-tab'); } }, 'إعادة فتح التبويب المغلق (Ctrl+Shift+T)'),
+    el('button', { onclick: () => { hidePopups(); run('close-duplicates'); } }, 'قفل التبويبات المكررة'),
     el('button', { onclick: () => { hidePopups(); closeMany(visibleTabs()); } }, `إغلاق كل التبويبات (${visibleTabs().length})`),
     el('hr'),
     el('button', { onclick: () => { hidePopups(); if (tab.webview) tab.webview.reload(); else activate(tab); } }, '⟳ إعادة تحميل'),
@@ -398,13 +400,37 @@ async function navigate(input, tab = state.active) {
   if (!url || !tab) return;
   hideSuggestions();
   if (url === NEWTAB) {
-    if (tab.webview) { tab.webview.remove(); tab.webview = null; }
+    // زرار البيت من صفحة: سهم الرجوع يرجّعك للصفحة دي تاني
+    if (tab.webview) { tab.backUrl = /^https?:|^file:/.test(tab.url || '') ? tab.url : null; tab.fwdUrl = null; tab.wcId = null; tab.ready = false; tab.webview.remove(); tab.webview = null; }
     tab.url = NEWTAB; tab.title = 'تبويب جديد'; tab.ui.title.textContent = tab.title;
   } else {
+    // صفحة اتفتحت من الصفحة الرئيسية: سهم الرجوع يرجع للرئيسية زي كروم
+    if (!tab.webview && tab.url === NEWTAB) { tab.homeBack = true; tab.backUrl = null; tab.fwdUrl = null; }
     ensureWebview(tab, url);
   }
   activate(tab);
 }
+async function goBack(tab = state.active) {
+  if (!tab) return;
+  const w = tab.webview;
+  if (w && tab.ready && w.canGoBack()) { w.goBack(); return; }
+  if (w && tab.homeBack) {
+    const u = tab.url;
+    await navigate(NEWTAB, tab);
+    tab.backUrl = null; tab.fwdUrl = u; tab.homeBack = false;
+    updateNav();
+    return;
+  }
+  if (!w && tab.backUrl) { const u = tab.backUrl; await navigate(u, tab); }
+}
+async function goForward(tab = state.active) {
+  if (!tab) return;
+  const w = tab.webview;
+  if (w && tab.ready && w.canGoForward()) { w.goForward(); return; }
+  if (!w && tab.fwdUrl) { const u = tab.fwdUrl; await navigate(u, tab); }
+}
+const canBack = (tab) => !!tab && ((tab.webview && tab.ready && tab.webview.canGoBack()) || (tab.webview && tab.homeBack) || (!tab.webview && tab.backUrl));
+const canForward = (tab) => !!tab && ((tab.webview && tab.ready && tab.webview.canGoForward()) || (!tab.webview && tab.fwdUrl));
 
 // زي كروم: الرابط العربي يتعرض بالحروف العربي مش %D8%B4...، والمسافات تفضل %20
 function displayUrl(u) {
@@ -423,8 +449,8 @@ function updateNav() {
   if (typeof updateVideoBtn === 'function') updateVideoBtn();
   $('#ntIncognito').classList.toggle('hidden', !tab.temp);
   const wv = tab.webview, ready = wv && tab.ready;
-  $('#backBtn').disabled = !(ready && wv.canGoBack());
-  $('#fwdBtn').disabled = !(ready && wv.canGoForward());
+  $('#backBtn').disabled = !canBack(tab);
+  $('#fwdBtn').disabled = !canForward(tab);
   // زي كروم: علامة التحميل بتلف على أيقونة التبويب، وزرار التحديث بيبقى ✕ للإيقاف
   const rl = tab.loading ? 'close' : 'reload';
   if ($('#reloadBtn').dataset.state !== rl) { $('#reloadBtn').dataset.state = rl; $('#reloadBtn').innerHTML = icon(rl); $('#reloadBtn').title = tab.loading ? 'إيقاف التحميل' : 'إعادة تحميل (F5)'; }
@@ -517,11 +543,22 @@ let sugSel = -1, sugItems = [];
 async function showSuggestions(q) {
   const box = $('#suggestions');
   if (!q.trim()) return hideSuggestions();
-  sugItems = [{ search: true, title: q }, ...(await api.suggest(q))];
+  // زي كروم: نتيجة الحساب على طول (5*12، ٣٠٠÷٤، 15% من 200) + «التبديل إلى التبويب» لو الصفحة مفتوحة أصلاً
+  const calc = omniCalc(q);
+  const ql = q.trim().toLowerCase();
+  const openTabs = ql.length < 2 ? [] : visibleTabs().filter(t => t !== state.active && t.url !== NEWTAB &&
+    ((t.title || '').toLowerCase().includes(ql) || (t.url || '').toLowerCase().includes(ql))).slice(0, 3);
+  const hist = await api.suggest(q);
+  sugItems = [...(calc != null ? [{ calc: true, value: calc }] : []), { search: true, title: q },
+    ...openTabs.map(t => ({ tab: t, title: t.title, url: t.url })), ...hist.filter(h => !openTabs.some(t => t.url === h.url))];
   sugSel = -1;
   box.innerHTML = '';
   sugItems.forEach((s, i) => {
-    const row = s.search
+    const row = s.calc
+      ? el('div', { class: 'sug-calc' }, '🧮', el('span', {}, '= ' + s.value), el('span', { class: 's', style: 'color:var(--muted)' }, '— اضغط للنسخ'))
+      : s.tab
+      ? el('div', { class: 'sug-tab' }, '⇄', el('span', {}, s.title || ''), el('span', { class: 'chip' }, 'التبديل إلى التبويب'), el('span', { class: 'u' }, displayUrl(s.url)))
+      : s.search
       ? el('div', {}, '🔍', el('span', {}, `${q}`), el('span', { class: 's', style: 'color:var(--muted)' }, '— بحث'))
       : el('div', {}, s.bookmark ? '★' : '🕘', el('span', {}, s.title || ''), el('span', { class: 'u' }, s.url));
     row.addEventListener('mousedown', (e) => { e.preventDefault(); pickSuggestion(i); });
@@ -530,8 +567,34 @@ async function showSuggestions(q) {
   box.classList.remove('hidden');
 }
 function hideSuggestions() { $('#suggestions').classList.add('hidden'); sugItems = []; }
+// آلة حاسبة صغيرة لشريط العنوان (من غير eval): + - × ÷ ^ % وأقواس، والأرقام العربي كمان
+function omniCalc(q) {
+  let t = String(q).trim().replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[×xX]/g, '*').replace(/÷/g, '/').replace(/٫/g, '.').replace(/,/g, '');
+  t = t.replace(/^=/, '').replace(/(\d+(?:\.\d+)?)\s*%\s*(?:من|of)\s*(\d+(?:\.\d+)?)/i, '($1/100*$2)');
+  if (!/^[\d\s+\-*/^().%]+$/.test(t) || !/\d\s*[+\-*/^%]\s*[\d(]|\)\s*[+\-*/^]|\d\s*%$/.test(t)) return null;
+  let i = 0;
+  const peek = () => { while (t[i] === ' ') i++; return t[i]; };
+  const num = () => {
+    const c = peek();
+    if (c === '(') { i++; const v = add(); if (peek() !== ')') throw 0; i++; return post(v); }
+    if (c === '-') { i++; return -num(); }
+    if (c === '+') { i++; return num(); }
+    const m = /^\d+(\.\d+)?/.exec(t.slice(i)); if (!m) throw 0;
+    i += m[0].length; return post(+m[0]);
+  };
+  const post = (v) => { if (peek() === '%') { i++; return v / 100; } return v; };
+  const pow = () => { const b = num(); if (peek() === '^') { i++; return Math.pow(b, pow()); } return b; };
+  const mul = () => { let v = pow(); for (;;) { const c = peek(); if (c === '*') { i++; v *= pow(); } else if (c === '/') { i++; v /= pow(); } else return v; } };
+  const add = () => { let v = mul(); for (;;) { const c = peek(); if (c === '+') { i++; v += mul(); } else if (c === '-') { i++; v -= mul(); } else return v; } };
+  try {
+    const v = add(); if (peek() !== undefined || !isFinite(v)) return null;
+    return String(Math.round(v * 1e10) / 1e10);
+  } catch (_) { return null; }
+}
 function pickSuggestion(i) {
   const s = sugItems[i]; if (!s) return;
+  if (s.calc) { navigator.clipboard.writeText(s.value).catch(() => {}); toast('اتنسخ: ' + s.value); hideSuggestions(); return; }
+  if (s.tab) { $('#address').blur(); hideSuggestions(); activate(s.tab); return; }
   const v = s.search ? $('#address').value : s.url;
   $('#address').blur();
   navigate(v);
@@ -769,8 +832,8 @@ const commands = {
   },
   'focus-address': () => { $('#address').focus(); $('#address').select(); },
   'reload': () => state.active && state.active.webview && state.active.webview.reload(),
-  'back': () => { const w = state.active && state.active.webview; if (w && w.canGoBack()) w.goBack(); },
-  'forward': () => { const w = state.active && state.active.webview; if (w && w.canGoForward()) w.goForward(); },
+  'back': () => goBack(),
+  'forward': () => goForward(),
   'bookmark': toggleBookmark,
   'show-history': () => openPanel('history'),
   'show-bookmarks': () => openPanel('bookmarks'),
@@ -829,6 +892,8 @@ function bind() {
   $('#newTabBtn').addEventListener('click', newTabSameProfile);
   $('#backBtn').addEventListener('click', () => run('back'));
   $('#fwdBtn').addEventListener('click', () => run('forward'));
+  // زراير الماوس الجانبية (رجوع / تقدم) زي كروم
+  document.addEventListener('mouseup', (e) => { if (e.button === 3 || e.button === 4) { e.preventDefault(); run(e.button === 3 ? 'back' : 'forward'); } });
   $('#reloadBtn').addEventListener('click', () => {
     const w = state.active && state.active.webview; if (!w) return;
     state.active.loading ? w.stop() : w.reload();
@@ -867,9 +932,11 @@ function bind() {
       e.preventDefault(); if (!rows.length) return;
       sugSel = (sugSel + (e.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length;
       rows.forEach((r, i) => r.classList.toggle('sel', i === sugSel));
-      const s = sugItems[sugSel]; if (s && !s.search) addr.value = s.url;
+      const s = sugItems[sugSel]; if (s && !s.search && !s.calc) addr.value = s.url;
     } else if (e.key === 'Enter') {
       e.preventDefault();
+      const picked = sugSel >= 0 && sugItems[sugSel];
+      if (picked && (picked.tab || picked.calc)) { pickSuggestion(sugSel); return; }
       let v = addr.value; addr.blur();
       const cur = state.active && state.active.url;
       if (cur && v === displayUrl(cur)) v = cur; // نفس الرابط المعروض بالعربي → الرابط الأصلي

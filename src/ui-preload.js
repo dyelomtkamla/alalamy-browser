@@ -3,7 +3,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const invoke = (ch) => (...args) => ipcRenderer.invoke(ch, ...args);
-const listeners = ['open-tab', 'shortcut', 'pw:prompt', 'downloads:update', 'translate-selection', 'select-tab-wc', 'close-tab-wc', 'window:state', 'video:open', 'video:sniffed', 'clients:changed', 'client:open-sites', 'session:restore', 'perm:prompt', 'af:prompt', 'ext:sidepanel', 'ext:sidepanel-close', 'devtools:open'];
+const listeners = ['open-tab', 'shortcut', 'pw:prompt', 'downloads:update', 'translate-selection', 'select-tab-wc', 'close-tab-wc', 'window:state', 'video:open', 'video:sniffed', 'clients:changed', 'client:open-sites', 'session:restore', 'perm:prompt', 'af:prompt', 'ext:sidepanel', 'ext:sidepanel-close', 'devtools:open', 'i18n:changed'];
 
 // شريط أزرار إضافات كروم <browser-action-list>
 try { require('electron-chrome-extensions/browser-action').injectBrowserAction(); } catch (err) { console.error(err); }
@@ -86,6 +86,8 @@ contextBridge.exposeInMainWorld('api', {
   tabActivated: invoke('tab:activated'),
   translateText: invoke('translate:text'),
   translateMany: invoke('translate:many'),
+  i18nGet: invoke('i18n:get'),
+  i18nEnsure: invoke('i18n:ensure'),
   checkUpdates: invoke('update:check'),
   learnSearch: invoke('learn:search'),
   // الملء التلقائي والإشارات المخفية وقائمة القراءة

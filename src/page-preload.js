@@ -719,3 +719,10 @@ try {
     }, 0);
   }, true);
 } catch { /* ignore */ }
+
+// ---------- زراير الماوس الجانبية: رجوع / تقدم (ولو الصفحة اتفتحت من الرئيسية، الرجوع بيوديك للرئيسية) ----------
+window.addEventListener('mouseup', (e) => {
+  if (!e.isTrusted || (e.button !== 3 && e.button !== 4) || e.defaultPrevented) return;
+  e.preventDefault();
+  ipcRenderer.send('page:mouse-nav', e.button === 3 ? 'back' : 'forward');
+}, true);

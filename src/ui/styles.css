@@ -708,3 +708,66 @@ body.fs #clientSitesBar { display: none; }
 #devDockBody { flex: 1; }
 #devDock .dd-resize { position: absolute; top: 0; bottom: 0; inset-inline-end: -3px; width: 6px; cursor: ew-resize; z-index: 2; }
 body.fs #devDock { display: none; }
+
+/* ---- 1.16.0: اقتراحات شريط العنوان (حاسبة + التبديل لتبويب مفتوح) ---- */
+#suggestions .sug-calc span:first-of-type { font-weight: 700; font-size: 15px; direction: ltr; }
+#suggestions .sug-tab .chip { flex: none; font-size: 11px; padding: 2px 8px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+
+/* ---- مؤشر التكبير ---- */
+#zoomBadge { flex: none; height: 24px; padding: 0 8px; border-radius: 12px; font-size: 12px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-weight: 600; }
+#zoomBadge:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+
+/* ---- بطاقة معاينة التبويب ---- */
+#tabHover { position: fixed; z-index: 400; width: 280px; background: var(--popup); color: var(--text); border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.22), 0 0 0 1px var(--border); padding: 10px 12px; pointer-events: none; animation: thIn .14s ease-out; }
+#tabHover .th-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px; line-height: 1.35; }
+#tabHover .th-host { color: var(--muted); font-size: 12px; margin-top: 3px; direction: ltr; text-align: start; }
+#tabHover .th-shot { display: block; width: calc(100% + 24px); margin: 10px -12px -10px; border-radius: 0 0 12px 12px; border-top: 1px solid var(--border); }
+#tabHover .th-state:empty { display: none; }
+#tabHover .th-state { font-size: 12px; color: var(--muted); margin-top: 6px; }
+@keyframes thIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+/* ---- شريط Gmail/الصور/تطبيقات جوجل فوق صفحة البداية + زرار التخصيص ---- */
+#ntTopBar { position: absolute; top: 10px; inset-inline-end: 18px; display: flex; align-items: center; gap: 4px; z-index: 5; }
+.ntTopLink { padding: 6px 10px; border-radius: 16px; color: var(--nt-text); font-size: 13px; }
+.ntTopLink:hover, .ntTopBtn:hover { background: color-mix(in srgb, var(--nt-text) 9%, transparent); }
+.ntTopBtn { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+#newtab .ntTopBtn svg { width: 22px; height: 22px; fill: var(--nt-muted); }
+#ntAppsPop { position: absolute; top: 46px; inset-inline-end: 0; width: 330px; max-height: 70vh; overflow: auto; background: var(--nt-box); border-radius: 26px; box-shadow: 0 6px 28px rgba(0,0,0,.22); padding: 14px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+#ntAppsPop .ap { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px; border-radius: 14px; color: var(--nt-text); font-size: 12.5px; }
+#ntAppsPop .ap:hover { background: var(--nt-tile); }
+#ntAppsPop .ap-ic { width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--c) 14%, var(--nt-box)); color: var(--c); font-weight: 700; font-size: 18px; }
+#ntAppsPop .ap-ic img { width: 26px; height: 26px; }
+#ntCustomize { position: fixed; bottom: 18px; inset-inline-end: 22px; z-index: 6; display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 16px 0 12px; border-radius: 19px; background: var(--nt-box); color: var(--nt-text); box-shadow: 0 2px 10px rgba(0,0,0,.16); font-size: 13px; }
+#newtab #ntCustomize svg { width: 18px; height: 18px; fill: var(--nt-text); }
+#ntCustomize:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,0,0,.22); }
+body.incognito #ntCustomize, body.incognito #ntTopBar { display: none; }
+
+/* خلفية فنية/صورة: الكروت بتبقى زجاج شفاف فوقها */
+#newtab.nt-has-bg { background-attachment: fixed !important; }
+#newtab.nt-has-bg .ntList, #newtab.nt-has-bg #speeddial, #newtab.nt-has-bg .ncard, #newtab.nt-has-bg #ntChips button {
+  background: color-mix(in srgb, var(--nt-card) 74%, transparent); backdrop-filter: blur(16px) saturate(1.3); -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  box-shadow: 0 1px 0 rgba(255,255,255,.25) inset, 0 6px 22px rgba(0,0,0,.12); }
+#newtab.nt-has-bg #ntSearch { box-shadow: 0 6px 26px rgba(0,0,0,.25); }
+#newtab.nt-dark-bg #ntOwner, #newtab.nt-dark-bg .ntTopLink, #newtab.nt-dark-bg #ntLogo { color: #fff; text-shadow: 0 2px 12px rgba(0,0,0,.45); }
+#newtab.nt-dark-bg #ntLogo span { color: #fff !important; }
+#newtab.nt-dark-bg .ntTopBtn svg { fill: #fff; }
+#newtab.nt-dark-bg #social .soc span, #newtab.nt-dark-bg #ntSocial .soc span { color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,.6); }
+
+/* لوحة التخصيص */
+.lk-preview { border-radius: 16px; overflow: hidden; border: 1px solid var(--border); margin-bottom: 6px; }
+.lk-mini { height: 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; background: var(--nt-bg); color: var(--nt-text); }
+.lk-mini b { font-size: 17px; background: color-mix(in srgb, var(--nt-card) 80%, transparent); padding: 4px 14px; border-radius: 14px; }
+.lk-mini span { font-size: 12px; background: color-mix(in srgb, var(--nt-card) 80%, transparent); padding: 2px 10px; border-radius: 10px; }
+.lk-h { font-size: 14px; font-weight: 600; margin: 16px 0 10px; }
+.lk-colors { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+.lk-color { aspect-ratio: 1; border-radius: 50%; box-shadow: 0 0 0 1px var(--border); transition: transform .12s; }
+.lk-color:hover { transform: scale(1.08); }
+.lk-color.on { box-shadow: 0 0 0 2px var(--popup), 0 0 0 4px var(--accent); }
+.lk-backs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.lk-back { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--text); padding: 0; }
+.lk-back i { display: flex; align-items: center; justify-content: center; height: 64px; border-radius: 12px; background: var(--input); box-shadow: 0 0 0 1px var(--border); font-style: normal; font-size: 20px; color: var(--muted); }
+.lk-back.on i { box-shadow: 0 0 0 2px var(--popup), 0 0 0 4px var(--accent); }
+
+/* واجهة من الشمال لليمين (لغات زي الإنجليزي) */
+body.ltr-ui #address { text-align: left; }
+@media (prefers-reduced-motion: reduce) { #tabHover { animation: none; } }

@@ -1,10 +1,14 @@
 'use strict';
 /* مسجّل الصوت النقي: المايك → إلغاء الدوشة بتاع كروم (WebRTC) → فلتر للهمهمة والتكييف → بوابة ذكية
    بتقيس دوشة الأوضة وتكتم اللي تحتها (الأصوات البعيدة والمراوح) → تسجيل WAV/MP3 بمستوى مظبوط */
+// القرآن كان فيه «ضبط الصوت التلقائي» (AGC) وإلغاء الصدى: بيعلّوا الصوت ويوطّوه لوحدهم مع كل نفَس ووقفة،
+// والبوابة كانت بتقفل بسرعة وبقوة بين الآيات، وكتم الدوشة بتاع كروم بيوطّي المد الطويل لأنه بيحسبه دوشة ثابتة.
+// دلوقتي القرآن ثابت: من غير AGC ولا كتم كروم (فلتر الهمهمة والتكييف بس)، وبوابة ناعمة
+// بتوطّي الدوشة بس (مش بتكتمها) ومستنية لحد ما الوقفة تطول قبل ما توطّي.
 const REC_MODES = {
-  voice: { name: 'قرآن / كلام / فويس', ec: true, ns: true, agc: true, hp: 85, gate: 2.6 },
-  sing: { name: 'غناء / إنشاد', ec: false, ns: true, agc: false, hp: 70, gate: 2.0 },
-  raw: { name: 'خام من غير معالجة', ec: false, ns: false, agc: false, hp: 0, gate: 0 }
+  voice: { name: 'قرآن / كلام / فويس', ec: false, ns: false, agc: false, hp: 75, gate: 1.8, floor: 0.35, hold: 450, release: 0.35 },
+  sing: { name: 'غناء / إنشاد', ec: false, ns: true, agc: false, hp: 70, gate: 1.6, floor: 0.3, hold: 350, release: 0.3 },
+  raw: { name: 'خام من غير معالجة', ec: false, ns: false, agc: false, hp: 0, gate: 0, floor: 1, hold: 0, release: 0.3 }
 };
 const rec = { mode: 'voice', deviceId: '', stream: null, ctx: null, nodes: null, chunks: [], recording: false, startAt: 0, floor: 0.004, calib: null, level: 0, gateOpen: 0, wav: null, timer: null };
 try { const m = localStorage.getItem('recMode'); if (REC_MODES[m]) rec.mode = m; rec.deviceId = localStorage.getItem('recMic') || ''; } catch (_) { /* ignore */ }
@@ -25,21 +29,25 @@ async function recStart() {
   // همهمة الكهربا 50 هيرتز (مصر) بتتشال
   if (m.hp) { const notch = ctx.createBiquadFilter(); notch.type = 'notch'; notch.frequency.value = 50; notch.Q.value = 8; node.connect(notch); node = notch; }
   const proc = ctx.createScriptProcessor(2048, 1, 1);
-  let env = 0;
+  let env = 1, lastLoud = 0;
+  const attack = 1 - Math.exp(-1 / (0.008 * ctx.sampleRate));          // بتفتح في ~8ms
+  const release = 1 - Math.exp(-1 / (m.release * ctx.sampleRate));     // وبتوطّي براحة (~300ms)
   proc.onaudioprocess = (ev) => {
     const inp = ev.inputBuffer.getChannelData(0), out = ev.outputBuffer.getChannelData(0);
     let sum = 0; for (let i = 0; i < inp.length; i++) sum += inp[i] * inp[i];
     const rms = Math.sqrt(sum / inp.length);
     rec.level = rms;
     if (rec.calib) { rec.calib.push(rms); }
-    // البوابة: لو الصوت أعلى من دوشة الأوضة بكتير تفتح بسرعة، ولو أقل تقفل براحة (من غير تقطيع)
+    // بوابة ناعمة: الصوت أعلى من دوشة المكان → مفتوحة. سكوت أطول من «hold» → بتوطّي الدوشة لحد floor بس
     let target = 1;
+    const now = ev.playbackTime * 1000;
     if (m.gate) {
       const th = rec.floor * m.gate;
-      target = rms >= th ? 1 : Math.max(0.03, Math.pow(rms / th, 2));
+      if (rms >= th) lastLoud = now;
+      if (now - lastLoud > m.hold) target = Math.max(m.floor, Math.min(1, Math.pow(rms / th, 1.5)));
     }
     for (let i = 0; i < inp.length; i++) {
-      env += (target - env) * (target > env ? 0.02 : 0.0009); // فتح ~1ms، قفل ~25ms
+      env += (target - env) * (target > env ? attack : release);
       out[i] = inp[i] * env;
     }
     rec.gateOpen = env;

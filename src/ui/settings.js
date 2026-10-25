@@ -107,6 +107,8 @@ const settingsSections = {
     return [card(
       settingRow('المظهر', 'فاتح أو داكن أو حسب ويندوز.',
         selectOf([['system', 'حسب النظام'], ['light', 'فاتح'], ['dark', 'داكن']], state.settings.theme || 'system', (v) => saveSetting({ theme: v }))),
+      settingRow('لون المتصفح وخلفية صفحة البداية', '12 لون و8 خلفيات فنية أو صورة من جهازك، زي «تخصيص كروم».',
+        el('button', { onclick: () => openPanel('customize') }, 'تخصيص')),
       settingRow('إظهار شريط المفضلة', null, toggle('showBookmarksBar')),
       settingRow('الشريط الجانبي (واتساب وماسنجر وتليجرام)', 'شريط صغير على جنب الشاشة بيفتح المراسلة جنب الصفحة زي أوبرا.', toggle('showSidebar', () => applySidebar())),
       settingRow('عرض الأخبار في صفحة التبويب الجديد', 'أخبار من بي بي سي عربي وأخبار جوجل تحت الاختصارات.', toggle('showFeed')),
@@ -158,7 +160,15 @@ const settingsSections = {
       el('p', { class: 'note' }, 'في كل الأحوال الجلسة بتتحفظ أول بأول: لو المتصفح اتقفل أو الكهربا قطعت، افتحه واضغط Ctrl+Shift+T وكل النوافذ والتبويبات هترجع زي ما كانت.'))];
   },
   languages() {
-    return [card(settingRow('ترجمة الصفحات إلى', 'اللغة اللي زرار 🌐 بيترجم ليها الصفحات.',
+    const uiLangs = (window.uiLanguages && window.uiLanguages()) || [['ar', 'العربية']];
+    const siteLangs = [['ar', 'العربية (دايمًا)'], ['auto', 'حسب لغة ويندوز'], ...uiLangs.filter(([c]) => c !== 'ar')];
+    return [card(
+      settingRow('لغة المتصفح', 'لغة القوائم والأزرار والإعدادات. أول مرة تختار لغة بتتترجم الواجهة كلها (محتاج إنترنت دقيقة)، وبعد كده بتشتغل على طول.',
+        selectOf(uiLangs, state.settings.uiLang || 'ar', (v) => saveSetting({ uiLang: v }).then(() => setTimeout(() => openSettingsPage('languages'), 300)))),
+      settingRow('لغة المواقع', 'فيسبوك وانستجرام ومدير الإعلانات وجوجل وكل المواقع بتفتح باللغة دي، في حسابك وفي جلسات كل العملاء. (لو حساب عميل متظبط على الإنجليزي من إعدادات فيسبوك نفسها، غيّرها من هناك مرة واحدة)',
+        selectOf(siteLangs, state.settings.siteLang || 'ar', (v) => saveSetting({ siteLang: v }).then(() => toast('اتغيرت. اعمل تحديث للصفحات المفتوحة')))),
+      settingRow('اقترح ترجمة الصفحات الإنجليزي', 'الشريط بيظهر بس لما الصفحة تكون بالإنجليزي فعلًا.', toggle('translateOffer'))),
+      card(settingRow('ترجمة الصفحات إلى', 'اللغة اللي زرار 🌐 بيترجم ليها الصفحات.',
       selectOf(Object.entries(LANGS), state.settings.translateTo || 'ar', (v) => saveSetting({ translateTo: v })))),
       card(el('div', { class: 'stitle', style: 'margin-bottom:8px' }, 'المترجم'), embedPanel('translate'))];
   },

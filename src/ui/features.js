@@ -106,12 +106,25 @@ async function onTabReady(tab) {
   syncExtBar(tab);
   hideTrBar();
   if (!/^https?:/.test(tab.url || '')) return;
-  let lang = '';
-  try { lang = await tab.webview.executeJavaScript('document.documentElement.lang || ""'); } catch { return; }
-  tab.pageLang = (lang || '').split('-')[0].toLowerCase();
+  // لغة الصفحة من وسم lang + نسبة الحروف في النص نفسه (مواقع عربي كتير حاطة lang="en" غلط)
+  let info = null;
+  try {
+    info = await tab.webview.executeJavaScript(`(() => {
+      const t = ((document.body && document.body.innerText) || '').slice(0, 4000);
+      const ar = (t.match(/[\\u0600-\\u06FF]/g) || []).length, la = (t.match(/[A-Za-z]/g) || []).length;
+      return { lang: document.documentElement.lang || '', ar, la };
+    })()`);
+  } catch { return; }
+  if (!info) return;
+  tab.pageLang = (info.lang || '').split('-')[0].toLowerCase();
+  const letters = info.ar + info.la;
+  const mostlyLatin = letters > 40 && info.la / letters > 0.75;
+  if (!tab.pageLang && mostlyLatin) tab.pageLang = 'en';
   const target = state.settings.translateTo || 'ar';
-  if (tab.pageLang && tab.pageLang !== target.slice(0, 2) && tab === state.active && !tab.dismissedTr) {
-    showTrBar(tab, `هذه الصفحة ب${langName(tab.pageLang)}. ترجمتها إلى:`, target);
+  // زي ما طلبت: اقتراح الترجمة يظهر بس لو المحتوى إنجليزي فعلاً (مش لأي صفحة عربي أو لغة تانية)
+  const english = tab.pageLang === 'en' && mostlyLatin;
+  if (english && !target.startsWith('en') && tab === state.active && !tab.dismissedTr && state.settings.translateOffer !== false) {
+    showTrBar(tab, `هذه الصفحة بالإنجليزية. ترجمتها إلى:`, target);
   }
 }
 

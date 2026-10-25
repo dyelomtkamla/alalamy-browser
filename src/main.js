@@ -12,6 +12,8 @@ const translator = require('./translate');
 const updater = require('./updater');
 const adblock = require('./adblock');
 const learn = require('./learn');
+const i18n = require('./i18n');
+i18n.patchElectron({ Menu, dialog });
 
 // ---------- واجهة مستخدم بهوية كروم عادية حتى لا ترفض جوجل/مايكروسوفت تسجيل الدخول ----------
 // نحذف أي رمز غير قياسي (مثل Electron/xx واسم التطبيق) ونبقي على Mozilla/AppleWebKit/Chrome/Safari فقط
@@ -95,8 +97,40 @@ function defaultSettings() {
     showFeed: true,
     showSidebar: true,
     hiddenShortcuts: [],
-    unpackedExtensions: []
+    unpackedExtensions: [],
+    siteLang: 'ar',
+    askLocation: false,
+    uiLang: 'ar'
   };
+}
+// ---------- لغة المواقع: كل الجلسات (الرئيسية والعملاء والمتخفي) بتطلب المواقع بالعربي ----------
+// ويندوز لو إنجليزي كان Electron بيبعت Accept-Language إنجليزي، ففيسبوك وانستجرام ومدير الإعلانات يفتحوا إنجليزي
+function siteLangCode() {
+  const l = (store.settings && store.settings.siteLang) || (readJSON('settings.json', {}).siteLang) || 'ar';
+  return /^[a-zA-Z]{2,3}(-[a-zA-Z]{2,4})?$/.test(l) ? l : (l === 'auto' ? 'auto' : 'ar');
+}
+function acceptLangs() {
+  const l = siteLangCode();
+  if (l === 'auto') return '';
+  const base = l.split('-')[0];
+  const list = [l];
+  if (base === 'ar' && l === 'ar') list.push('ar-EG');
+  if (base !== l) list.push(base);
+  if (base !== 'en') list.push('en-US', 'en');
+  return list.map((x, i) => i ? `${x};q=${Math.max(0.1, 1 - i * 0.1).toFixed(1)}` : x).join(',');
+}
+// فيسبوك وميتا (مدير الإعلانات، بيزنس سويت) بتشوف كوكي locale قبل أي حاجة
+const META_LOCALES = { ar: 'ar_AR', en: 'en_US', fr: 'fr_FR', es: 'es_LA', de: 'de_DE', tr: 'tr_TR', it: 'it_IT', pt: 'pt_BR', ru: 'ru_RU', fa: 'fa_IR', ur: 'ur_PK', hi: 'hi_IN', id: 'id_ID', zh: 'zh_CN', ja: 'ja_JP', ko: 'ko_KR', nl: 'nl_NL' };
+function setMetaLocale(ses) {
+  const l = siteLangCode(); const loc = META_LOCALES[l.split('-')[0]];
+  if (!loc) return;
+  for (const d of ['facebook.com', 'instagram.com']) {
+    const url = `https://www.${d}/`;
+    ses.cookies.get({ url, name: 'locale' }).then((c) => {
+      if (c.length && c[0].value === loc) return;
+      return ses.cookies.set({ url, name: 'locale', value: loc, domain: '.' + d, path: '/', secure: true, sameSite: 'no_restriction', expirationDate: Math.floor(Date.now() / 1000) + 365 * 86400 });
+    }).catch(() => {});
+  }
 }
 const ZOOMS = [67, 75, 80, 90, 100, 110, 125, 150, 175, 200];
 
@@ -227,7 +261,8 @@ function setupSession(partition) {
   if (configured.has(partition)) return configured.get(partition);
   const ses = session.fromPartition(partition);
   configured.set(partition, ses);
-  ses.setUserAgent(pageUA);
+  ses.setUserAgent(pageUA, acceptLangs() || undefined);
+  setMetaLocale(ses);
   extensions.setup(partition);
   // كل طلب ياخد الهوية المناسبة لموقعه (كروم عادي لسناب شات، والهوية العادية لباقي المواقع زي جوجل)
   ses.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, cb) => {
@@ -236,6 +271,8 @@ function setupSession(partition) {
     if (h['User-Agent'] && h['User-Agent'] !== want && (want === cleanUA || h['User-Agent'] === cleanUA)) h['User-Agent'] = want;
     // «عدم التتبع» زي كروم وفايرفوكس: بنبعت DNT و Sec-GPC لو المستخدم مفعّلها
     if (store.settings.doNotTrack) { h['DNT'] = '1'; h['Sec-GPC'] = '1'; }
+    const al = acceptLangs();
+    if (al) { for (const k of Object.keys(h)) if (k.toLowerCase() === 'accept-language') delete h[k]; h['Accept-Language'] = al; }
     cb({ requestHeaders: h });
   });
 
@@ -524,10 +561,17 @@ function handleShortcut(e, input, wc) {
   sendTo(wc, 'shortcut', action);
 }
 ipcMain.on('bgaudio:on', (e) => { e.returnValue = store.settings.backgroundAudio !== false; });
+ipcMain.on('page:mouse-nav', (e, dir) => { if (dir === 'back' || dir === 'forward') sendTo(e.sender, 'shortcut', dir); });
 ipcMain.on('page:shortcut', (e, action) => {
   if (typeof action === 'string' && PAGE_FIRST.has(action)) sendTo(e.sender, 'shortcut', action);
 });
 
+function textFragmentURL(pageURL, text) {
+  const enc = (x) => encodeURIComponent(x).replace(/-/g, '%2D');
+  const words = text.split(' ');
+  const frag = words.length > 10 ? `${enc(words.slice(0, 4).join(' '))},${enc(words.slice(-4).join(' '))}` : enc(text);
+  return pageURL.replace(/#.*$/, '') + '#:~:text=' + frag;
+}
 function setupGuest(guest) {
   guest.on('before-input-event', (e, input) => handleShortcut(e, input, guest));
   // هوية كروم العادية لسناب شات (لازم تتغير قبل ما الصفحة تتحمل علشان navigator.userAgent كمان)
@@ -643,6 +687,8 @@ function pageMenu(guest, p) {
     const short = s.length > 40 ? s.slice(0, 40) + '…' : s;
     const toAr = !/[؀-ۿ]/.test(s);
     if (!p.isEditable) add(key('نسخ', 'CmdOrCtrl+C', { click: () => guest.copy() }));
+    // زي كروم: «نسخ رابط للنص المميز» — اللي يفتح الرابط بتنزل الصفحة على الجملة دي وتتلوّن
+    if (!p.isEditable && /^https?:/.test(p.pageURL || '')) add({ label: 'نسخ رابط للنص المميز', click: () => clipboard.writeText(textFragmentURL(p.pageURL, s)) });
     add({ label: `البحث عن "${short}"`, click: () => sendUI('open-tab', { url: searchURL(s), partition }) },
       /^\S+\.\S{2,}$/.test(s) && !/\s/.test(s) ? { label: `الانتقال إلى ${short}`, click: () => sendUI('open-tab', { url: /^https?:/.test(s) ? s : 'https://' + s, partition }) } : null,
       { label: toAr ? '🌐 ترجمة التحديد إلى العربية' : '🌐 ترجمة التحديد إلى الإنجليزية',
@@ -788,6 +834,8 @@ function askPermission(wc, permission, details, partition) {
   const saved = (store.settings.sitePerms || {})[host] || {};
   if (keys.some(k => saved[k] === 'block')) return Promise.resolve(false);
   if (keys.every(k => saved[k] === 'allow')) return Promise.resolve(true);
+  // «يريد معرفة موقعك»: بيترفض بهدوء من غير رسالة، إلا لو المستخدم فعّل السؤال من الإعدادات أو سمح للموقع ده بالذات
+  if (keys.includes('geolocation') && !store.settings.askLocation) return Promise.resolve(false);
   if (SMOKE_TEST) return Promise.resolve(false);
   // نافذة منبثقة من الموقع (زي نافذة مكالمة فيسبوك/ماسنجر): مفيهاش شريط المتصفح، فبنسأل برسالة فوقها
   // (قبل كده الطلب كان بيروح لصفحة الموقع نفسها فمكانش بيظهر ويترفض بعد دقيقتين → المكالمة من غير مايك وكاميرا)
@@ -1494,10 +1542,19 @@ ipcMain.handle('settings:save', (_e, s) => {
     if (typeof s.adblock === 'boolean') store.settings.adblock = s.adblock;
     if (typeof s.restoreTabs === 'boolean') store.settings.restoreTabs = s.restoreTabs;
     if ([0, 10, 30, 60, 180].includes(s.sleepMinutes)) store.settings.sleepMinutes = s.sleepMinutes;
+    if (typeof s.siteLang === 'string' && /^([a-zA-Z]{2,3}(-[a-zA-Z]{2,4})?|auto)$/.test(s.siteLang) && s.siteLang !== store.settings.siteLang) {
+      store.settings.siteLang = s.siteLang;
+      for (const [, ses] of configured) { try { ses.setUserAgent(pageUA, acceptLangs() || undefined); setMetaLocale(ses); } catch { /* ignore */ } }
+    }
+    if (typeof s.uiLang === 'string' && i18n.UI_LANGS.some(x => x[0] === s.uiLang) && s.uiLang !== store.settings.uiLang) {
+      store.settings.uiLang = s.uiLang;
+      i18n.setLang(s.uiLang);
+      for (const w of windows) if (!w.isDestroyed()) w.webContents.send('i18n:changed', s.uiLang);
+    }
     if (typeof s.translateTo === 'string' && /^[a-zA-Z-]{2,8}$/.test(s.translateTo)) store.settings.translateTo = s.translateTo;
     if (['system', 'light', 'dark'].includes(s.theme)) { store.settings.theme = s.theme; nativeTheme.themeSource = s.theme; }
     if (Array.isArray(s.hiddenShortcuts)) store.settings.hiddenShortcuts = s.hiddenShortcuts.filter(x => typeof x === 'string').slice(-200);
-    for (const k of ['showBookmarksBar', 'askDownload', 'hardwareAcceleration', 'videoOverlay', 'showFeed', 'showSidebar', 'doNotTrack', 'showWidgets', 'httpsFirst', 'allowPasskeys']) if (typeof s[k] === 'boolean') store.settings[k] = s[k];
+    for (const k of ['showBookmarksBar', 'askDownload', 'hardwareAcceleration', 'videoOverlay', 'showFeed', 'showSidebar', 'doNotTrack', 'showWidgets', 'httpsFirst', 'allowPasskeys', 'askLocation', 'translateOffer']) if (typeof s[k] === 'boolean') store.settings[k] = s[k];
     if (ZOOMS.includes(s.defaultZoom)) store.settings.defaultZoom = s.defaultZoom;
     if (s.downloadDir === '') store.settings.downloadDir = '';
     const ids = (v) => v.filter(x => typeof x === 'string' && /^[a-z]{2,12}$/.test(x)).slice(0, 30);
@@ -1518,6 +1575,10 @@ ipcMain.handle('tab:activated', (_e, wcId) => {
   const wc = allWebContents.fromId(wcId);
   if (wc) extensions.selectTab(wc, partitionOfWebContents(wc));
 });
+
+// ---------- لغة الواجهة ----------
+ipcMain.handle('i18n:get', () => ({ lang: i18n.lang, rtl: i18n.RTL.has(i18n.lang), dict: i18n.dict, langs: i18n.UI_LANGS }));
+ipcMain.handle('i18n:ensure', (_e, list) => Array.isArray(list) ? i18n.ensure(list.slice(0, 2000).map(String)) : {});
 
 // ---------- الترجمة ----------
 ipcMain.handle('translate:text', async (_e, { text, target, source }) => {
@@ -1684,6 +1745,8 @@ ipcMain.handle('page:pdf', async (_e, wcId) => {
 // ---------- بدء التشغيل ----------
 // تسريع الأجهزة (يتطلب إعادة تشغيل)
 try { if (readJSON('settings.json', {}).hardwareAcceleration === false) app.disableHardwareAcceleration(); } catch {}
+// لغة Chromium نفسها = لغة المواقع (navigator.language في كل الصفحات + Accept-Language الافتراضي)
+try { const l = siteLangCode(); if (l !== 'auto') app.commandLine.appendSwitch('lang', l); } catch {}
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock && !SMOKE_TEST) app.quit();
 // رابط مفتوح من برنامج آخر (لما يكون المتصفح الافتراضي) أو ملف html
@@ -1704,6 +1767,8 @@ app.on('second-instance', (_e, argv) => {
 
 app.whenReady().then(() => {
   loadStore();
+  i18n.setup({ userData: dataDir(), translator });
+  i18n.setLang(store.settings.uiLang || 'ar');
   adblock.init(() => store.settings);
   extensions.init({
     getWindow: () => win,

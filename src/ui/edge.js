@@ -451,3 +451,10 @@ window.addEventListener('storage', (e) => {
 // تغيير عرض النافذة: الأدوات تتنقل بين الأطراف وتحت الأعمدة
 for (const q of ['(min-width: 1800px)', '(min-width: 1240px)']) matchMedia(q).addEventListener('change', () => { try { renderWidgets(); } catch { /* ignore */ } });
 try { if ($('#ntNewsSide').children.length) renderWidgets(); } catch (e) { console.error(e); }
+// ارتفاع الصفحة الرئيسية علشان الأعمدة الثابتة ماتطلعش بره الشاشة
+(() => {
+  const nt = $('#newtab');
+  if (!nt) return;
+  const set = () => { if (nt.clientHeight) nt.style.setProperty('--ntH', nt.clientHeight + 'px'); };
+  new ResizeObserver(set).observe(nt); set();
+})();

@@ -860,3 +860,7 @@ body.incognito #ntOwner { display: none; }
 /* أدوات المطور دايماً على يمين الشاشة حتى لو لغة الواجهة إنجليزي */
 html[dir=ltr] #devDock { order: 9; border-inline-end: none; border-inline-start: 1px solid var(--border); }
 html[dir=ltr] #devDock .dd-resize { inset-inline-end: auto; inset-inline-start: -3px; }
+/* الأعمدة اللي على اليمين والشمال ثابتة وانت بتنزل لتحت (ولو أطول من الشاشة بتتمرر لوحدها) */
+@media (min-width: 1240px) {
+  .ntSide, .ntEdge { position: sticky; top: 16px; max-height: calc(var(--ntH, 100vh) - 32px); overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--nt-muted) 35%, transparent) transparent; border-radius: 22px; }
+}

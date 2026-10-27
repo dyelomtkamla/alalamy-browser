@@ -920,9 +920,15 @@ ipcMain.handle('rec:save', async (_e, { data, name, format } = {}) => {
 });
 /* أدوات المطور جوه النافذة على اليمين زي كروم (بدل نافذة لوحدها): WebContentsView فوق مكان محجوز في الواجهة */
 const dockedDevtools = new Map(); // guestId -> { view, win }
-function devtoolsRect(b) {
+// لغة كروم عربي (--lang=ar) بتخلي إحداثيات WebContentsView معكوسة (x من اليمين)، فالأدوات كانت بتظهر على الشمال
+// والمكان المحجوز على اليمين فاضي. بنعكس x علشان تقع مكانها بالظبط.
+const RTL_UI = () => /^(ar|he|iw|fa|ur|ps|sd|ug|yi|ckb|dv)\b/i.test(app.getLocale() || '');
+function devtoolsRect(b, win) {
   const n = (v) => Math.max(0, Math.round(Number(v) || 0));
-  return b ? { x: n(b.x), y: n(b.y), width: n(b.width), height: n(b.height) } : null;
+  if (!b) return null;
+  const r = { x: n(b.x), y: n(b.y), width: n(b.width), height: n(b.height) };
+  if (win && !win.isDestroyed() && RTL_UI()) r.x = Math.max(0, win.getContentBounds().width - r.x - r.width);
+  return r;
 }
 function closeDockedDevtools(id) {
   const d = dockedDevtools.get(id);
@@ -951,7 +957,7 @@ ipcMain.handle('devtools:open', (e, { wcId, bounds, x, y, console: toConsole } =
     view.webContents.once('destroyed', () => { if (dockedDevtools.get(guest.id) === d) dockedDevtools.delete(guest.id); });
   }
   for (const [id, o] of dockedDevtools) if (o.win === w) o.view.setVisible(id === guest.id);
-  const r = devtoolsRect(bounds);
+  const r = devtoolsRect(bounds, w);
   if (r) d.view.setBounds(r);
   if (Number.isFinite(x) && Number.isFinite(y)) guest.inspectElement(Math.round(x), Math.round(y));
   if (toConsole) try { d.view.webContents.executeJavaScript('DevToolsAPI && DevToolsAPI.showPanel && DevToolsAPI.showPanel("console")').catch(() => {}); } catch { /* ignore */ }
@@ -964,7 +970,7 @@ ipcMain.handle('devtools:show', (e, { wcId, bounds } = {}) => {
     if (o.win !== w) continue;
     const on = id === want;
     o.view.setVisible(on);
-    if (on && bounds) o.view.setBounds(devtoolsRect(bounds));
+    if (on && bounds) o.view.setBounds(devtoolsRect(bounds, w));
   }
   return dockedDevtools.has(want);
 });

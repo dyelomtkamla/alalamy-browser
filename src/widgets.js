@@ -9,6 +9,15 @@ const EGP_LIVE = process.env.ALALAMY_EGP_URL || 'https://query1.finance.yahoo.co
 const LIVE_MS = 2 * 60000;
 const GOLD = (process.env.ALALAMY_GOLD_URL || 'https://xaus.com/api/v1/spot?compact=1,https://api.gold-api.com/price/XAU').split(',');
 const ESPN = process.env.ALALAMY_ESPN_URL || 'https://site.api.espn.com/apis/site/v2/sports/soccer';
+// لو ESPN مش بيفتح عند المستخدم (حصل في مصر): SofaScore وبعدين LiveScore
+const SOFA = process.env.ALALAMY_SOFA_URL || 'https://api.sofascore.com/api/v1/sport/football/scheduled-events';
+const LIVESCORE = process.env.ALALAMY_LIVESCORE_URL || 'https://prod-public-api.livescore.com/v1/api/app/date/soccer';
+// نفس الدوريات بالاسم (بلد|بطولة) للمصادر التانية — الترتيب مهم (أبطال أفريقيا قبل دوري الأبطال)
+const LEAGUE_RX = [[/^egypt\|premier league/i, 'الدوري المصري'], [/caf champions/i, 'أبطال أفريقيا'], [/world cup.*(caf|africa)|africa.*world cup/i, 'تصفيات أفريقيا'],
+  [/^(world|international)\|(fifa )?world cup$/i, 'كأس العالم'], [/uefa champions league|^europe\|champions league|^champions league/i, 'دوري الأبطال'], [/europa league/i, 'الدوري الأوروبي'],
+  [/^saudi|saudi pro|roshn/i, 'الدوري السعودي'], [/^england\|premier league$/i, 'الدوري الإنجليزي'], [/^spain\|(laliga|la liga|primera)/i, 'الدوري الإسباني'],
+  [/^italy\|serie a/i, 'الدوري الإيطالي'], [/^germany\|bundesliga$/i, 'الدوري الألماني'], [/^france\|ligue 1/i, 'الدوري الفرنسي']];
+const leagueOf = (country, name) => { const k = `${country || ''}|${name || ''}`; const m = LEAGUE_RX.find(([rx]) => rx.test(k)); return m ? m[1] : null; };
 const QURAN = process.env.ALALAMY_QURAN_URL || 'https://api.alquran.cloud/v1/ayah';
 // الدوريات اللي بتظهر في «ماتشات النهارده»
 const LEAGUES = [['egy.1', 'الدوري المصري'], ['uefa.champions', 'دوري الأبطال'], ['ksa.1', 'الدوري السعودي'], ['eng.1', 'الدوري الإنجليزي'],
@@ -115,9 +124,7 @@ function setup({ ipcMain, net, readJSON, writeJSON, app, path, fs, downloader })
 
   /* ---- ماتشات النهارده (ESPN) ---- */
   let matchCache = null;
-  ipcMain.handle('widgets:matches', async (_e, ymd) => {
-    ymd = /^\d{8}$/.test(String(ymd)) ? String(ymd) : new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    if (matchCache && matchCache.ymd === ymd && Date.now() - matchCache.time < 2 * 60000) return matchCache.data;
+  async function espnMatches(ymd) {
     const lists = await Promise.all(LEAGUES.map(async ([id, name]) => {
       try {
         const j = await getJSON(`${ESPN}/${id}/scoreboard?dates=${ymd}`);
@@ -130,9 +137,56 @@ function setup({ ipcMain, net, readJSON, writeJSON, app, path, fs, downloader })
         });
       } catch { return null; }
     }));
-    if (lists.every(l => l === null)) return matchCache && matchCache.ymd === ymd ? Object.assign([], matchCache.data, { stale: true }) : null;
+    return lists.every(l => l === null) ? null : lists.flat().filter(Boolean);
+  }
+  async function sofaMatches(ymd) {
+    const j = await getJSON(`${SOFA}/${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6)}`);
+    if (!j || !Array.isArray(j.events)) throw new Error('bad');
+    const out = [];
+    for (const ev of j.events) {
+      const t = ev.tournament || {}, ut = t.uniqueTournament || {};
+      const league = leagueOf(t.category && t.category.name, ut.name || t.name);
+      if (!league) continue;
+      const type = (ev.status && ev.status.type) || '';
+      const state = type === 'inprogress' ? 'in' : (type === 'finished' || type === 'canceled' || type === 'postponed') ? (type === 'finished' ? 'post' : 'pre') : 'pre';
+      const team = (x, sc) => ({ name: (x && ((x.fieldTranslations && x.fieldTranslations.nameTranslation && x.fieldTranslations.nameTranslation.ar) || x.shortName || x.name)) || '',
+        logo: x && x.id ? `https://api.sofascore.app/api/v1/team/${x.id}/image` : '', score: sc && sc.current != null ? String(sc.current) : '' });
+      const desc = (ev.status && ev.status.description) || '';
+      const clock = { '1st half': 'الشوط الأول', '2nd half': 'الشوط التاني', Halftime: 'استراحة', 'Extra time': 'وقت إضافي', Penalties: 'ركلات ترجيح' }[desc] || 'مباشر';
+      out.push({ id: 's' + ev.id, league, date: new Date((ev.startTimestamp || 0) * 1000).toISOString(), state, clock: state === 'in' ? clock : '',
+        detail: (ev.status && ev.status.description) || '', home: team(ev.homeTeam, ev.homeScore), away: team(ev.awayTeam, ev.awayScore) });
+    }
+    return out;
+  }
+  async function livescoreMatches(ymd) {
+    const j = await getJSON(`${LIVESCORE}/${ymd}/0?locale=en&MD=1`);
+    if (!j || !Array.isArray(j.Stages)) throw new Error('bad');
+    const out = [];
+    for (const st of j.Stages) {
+      const league = leagueOf(st.Cnm, st.CompN || st.Snm);
+      if (!league) continue;
+      for (const ev of st.Events || []) {
+        const eps = String(ev.Eps || '');
+        const state = eps === 'NS' || eps === 'Postp.' || eps === 'Canc.' ? 'pre' : (eps === 'FT' || eps === 'AET' || eps === 'AP') ? 'post' : 'in';
+        const d = String(ev.Esd || '');
+        const date = d.length >= 12 ? `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}T${d.slice(8, 10)}:${d.slice(10, 12)}:00Z` : new Date().toISOString();
+        const team = (t, sc) => ({ name: (t && t[0] && t[0].Nm) || '', logo: t && t[0] && t[0].Img ? 'https://lsm-static-prod.livescore.com/medium/' + t[0].Img : '', score: sc != null ? String(sc) : '' });
+        out.push({ id: 'l' + ev.Eid, league, date, state, clock: state === 'in' ? eps : '', detail: eps, home: team(ev.T1, ev.Tr1), away: team(ev.T2, ev.Tr2) });
+      }
+    }
+    return out;
+  }
+  ipcMain.handle('widgets:matches', async (_e, ymd) => {
+    ymd = /^\d{8}$/.test(String(ymd)) ? String(ymd) : new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    if (matchCache && matchCache.ymd === ymd && Date.now() - matchCache.time < 2 * 60000) return matchCache.data;
+    let list = await espnMatches(ymd);
+    for (const alt of [sofaMatches, livescoreMatches]) {
+      if (list && list.length) break;
+      try { const l = await alt(ymd); if (l && (l.length || !list)) list = l; } catch { /* المصدر اللي بعده */ }
+    }
+    if (!list) return matchCache && matchCache.ymd === ymd ? Object.assign([], matchCache.data, { stale: true }) : null;
     const order = { in: 0, pre: 1, post: 2 };
-    const data = lists.flat().filter(Boolean).sort((x, y) => (order[x.state] - order[y.state]) || (new Date(x.date) - new Date(y.date)));
+    const data = list.sort((x, y) => (order[x.state] - order[y.state]) || (new Date(x.date) - new Date(y.date)));
     matchCache = { ymd, time: Date.now(), data };
     return data;
   });

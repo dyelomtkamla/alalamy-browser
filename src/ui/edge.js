@@ -346,7 +346,12 @@ const EDGE_NAMES = { todo: 'مهام النهارده', focus: 'مؤقّت ال�
 /* ---------- الأذان ---------- */
 const RECITERS = [['sobhy', 'الشيخ إسلام صبحي'], ['mosaad', 'الشيخ عبد الرحمن مسعود'], ['afasy', 'الشيخ مشاري العفاسي']];
 const ADHAN_PRAYERS = PRAYER_NAMES.filter(([k]) => k !== 'sunrise');
-const adhanCfg = () => (wg.adhan = Object.assign({ on: true, mode: 'rotate', next: 0, vol: 0.9 }, wg.adhan || {}));
+// صوت الأذان مقفول من الأول (ناس انزعجت): بيشتغل بس لو المستخدم شغّله بنفسه (chosen)، حتى للي كان عندهم مفتوح لوحده
+const adhanCfg = () => {
+  const c = wg.adhan = Object.assign({ on: false, mode: 'rotate', next: 0, vol: 0.9 }, wg.adhan || {});
+  if (!c.chosen) c.on = false;
+  return c;
+};
 let adhanAudio = null;
 const adhanPlayed = new Set();
 function stopAdhan() {
@@ -414,7 +419,7 @@ async function adhanMenu() {
   ];
   const r = await api.uiMenu(items);
   if (r == null) return;
-  if (r === 'toggle') { cfg.on = !cfg.on; toast(cfg.on ? 'هيشتغل الأذان مع كل صلاة 🕌' : 'اتوقف صوت الأذان'); if (cfg.on) api.adhanPrepare(); }
+  if (r === 'toggle') { cfg.on = !cfg.on; cfg.chosen = true; toast(cfg.on ? 'هيشتغل الأذان مع كل صلاة 🕌' : 'اتوقف صوت الأذان'); if (cfg.on) api.adhanPrepare(); }
   else if (r === 'test') { wgSave(); return playAdhan('', true); }
   else if (r === 'vol') {
     const v = await askText('علو صوت الأذان (من ١٠ لـ ١٠٠)', String(Math.round(cfg.vol * 100)), { type: 'number' });
@@ -422,9 +427,10 @@ async function adhanMenu() {
     if (n >= 10 && n <= 100) cfg.vol = n / 100;
   } else if (r === 'm:custom' && st.custom !== 'ready') {
     if (!(await api.adhanPick())) return;
-    cfg.mode = 'custom';
+    cfg.mode = 'custom'; cfg.on = cfg.chosen = true;
   } else if (r.startsWith('m:')) {
-    cfg.mode = r.slice(2);
+    // اختيار شيخ = المستخدم اختار الأذان بالصوت
+    cfg.mode = r.slice(2); cfg.on = cfg.chosen = true;
     if (cfg.mode !== 'custom') api.adhanPrepare();
   }
   wgSave(); renderWidgets();

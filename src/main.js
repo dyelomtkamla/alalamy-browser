@@ -484,6 +484,19 @@ function createWindow({ incognito = false, url = null, restore = null, clientId 
 function setupWindow(win, incognito) {
   if (SMOKE_TEST) win.webContents.on('console-message', (_e, level, message, line, src) => console.log('UI_CONSOLE', level, message, src + ':' + line));
   win.webContents.on('preload-error', (_e, p, err) => console.log('PRELOAD_ERROR', p, err));
+  // حماية: واجهة المتصفح نفسها ماتروحش لأي صفحة تانية (زي لو حد سحب رابط وسابه فوق شريط التبويبات)،
+  // لأن الصفحة دي كانت هتاخد صلاحيات الواجهة كلها (كلمات السر والملفات). الرابط بيتفتح في تبويب جديد بدل كده.
+  const uiPage = require('url').pathToFileURL(path.join(__dirname, 'ui', 'index.html')).href;
+  win.webContents.on('will-navigate', (e, url) => {
+    if (String(url).split(/[?#]/)[0] === uiPage) return;
+    e.preventDefault();
+    if (/^(https?|file):\/\//i.test(url)) win.webContents.send('open-tab', { url });
+  });
+  win.webContents.on('will-redirect', (e, url) => { if (String(url).split(/[?#]/)[0] !== uiPage) e.preventDefault(); });
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) win.webContents.send('open-tab', { url });
+    return { action: 'deny' };
+  });
 
   const saveBounds = () => { if (!incognito && win === primaryWin && !win.isMaximized() && !win.isMinimized()) writeJSON('window.json', win.getBounds()); };
   win.on('resize', saveBounds);
@@ -607,7 +620,8 @@ function setupGuest(guest) {
       return { action: 'allow', overrideBrowserWindowOptions: { show: false,
         webPreferences: { partition, contextIsolation: true, nodeIntegration: false } } };
     }
-    sendTo(guest, 'open-tab', { url, partition, background: disposition === 'background-tab' });
+    // بس روابط الويب: مانفتحش file:// أو بروتوكولات غريبة من صفحة
+    if (/^(https?:|about:blank$)/i.test(url)) sendTo(guest, 'open-tab', { url, partition, background: disposition === 'background-tab' });
     return { action: 'deny' };
   });
   const pendingBlank = [];
@@ -809,7 +823,9 @@ ipcMain.on('pw:capture', (e, data) => {
 
 ipcMain.handle('pw:get', (e, origin) => {
   const partition = partitionOfWebContents(e.sender) || 'persist:default';
-  if (typeof origin !== 'string' || origin !== safeOrigin(e.sender.getURL())) return [];
+  // الأصل لازم يكون أصل الإطار اللي طالب فعلاً، وكمان نفس أصل الصفحة الرئيسية (مش إعلان جوه iframe)
+  const frameOrigin = safeOrigin((e.senderFrame && e.senderFrame.url) || e.sender.getURL());
+  if (typeof origin !== 'string' || origin !== frameOrigin || origin !== safeOrigin(e.sender.getURL())) return [];
   return store.passwords
     .filter(p => !p.never && p.origin === origin && p.partition === partition)
     .map(p => ({ username: p.username, password: decrypt(p.secret) }));
@@ -974,7 +990,7 @@ ipcMain.handle('perm:set', (_e, host, key, value) => {
 
 // الملء التلقائي، الإشارات المخفية، قائمة القراءة + أدوات الصفحة الرئيسية
 require('./autofill').setup({ ipcMain, readJSON, writeJSON, encrypt, decrypt, sendUI, partitionOfWebContents, shell, safeOrigin, store, BrowserWindow });
-require('./widgets').setup({ ipcMain, net, readJSON, writeJSON });
+require('./widgets').setup({ ipcMain, net, readJSON, writeJSON, app, path, fs, downloader });
 
 // ---------- واجهة برمجية للواجهة الرسومية ----------
 ipcMain.handle('init', (e) => {

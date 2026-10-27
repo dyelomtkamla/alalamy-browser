@@ -51,6 +51,10 @@ async function fetchSetup(info) {
   const win = getWindow();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alalamy-update-'));
   const file = path.join(dir, 'update.bin');
+  // حماية: التحديث بيتنزل بس من صفحة إصدارات المتصفح على GitHub أو من سيرفر المتصفح، وبـ https
+  if (!process.env.ALALAMY_SERVER && !/^https:\/\/(github\.com\/dyelomtkamla\/alalamy-browser\/releases\/|alalamy-browser\.a7medxml\.workers\.dev\/)/i.test(String(info.url || ''))) {
+    throw new Error('رابط التحديث مش من مصدر موثوق');
+  }
   await download(info.url, file, (p) => win && !win.isDestroyed() && win.setProgressBar(p));
   if (win && !win.isDestroyed()) win.setProgressBar(-1);
   const head = Buffer.alloc(2);

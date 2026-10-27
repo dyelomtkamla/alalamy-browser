@@ -726,3 +726,52 @@ window.addEventListener('mouseup', (e) => {
   e.preventDefault();
   ipcRenderer.send('page:mouse-nav', e.button === 3 ? 'back' : 'forward');
 }, true);
+
+// ---------- أعلام الدول (زي كروم): ويندوز مافيهوش أعلام إيموجي فبتظهر «EG» بدل علم مصر ----------
+// لما الصفحة يبقى فيها علم (زي قايمة كود الدولة جنب رقم الموبايل) بنضيف خط صغير بيرسم الأعلام بس للعنصر ده
+if (process.platform === 'win32' || process.env.ALALAMY_FLAGS === '1') (() => {
+  const FLAG = /[\u{1F1E6}-\u{1F1FF}]{2}|\u{1F3F4}[\u{E0061}-\u{E007A}]/u;
+  const fixed = new WeakSet();
+  let ready = null;
+  const loadFont = () => ready || (ready = ipcRenderer.invoke('flags:font').then((buf) => {
+    if (!buf) return false;
+    const face = new FontFace('AlalamyFlags', buf, { unicodeRange: 'U+1F1E6-1F1FF, U+1F3F4, U+E0062-E007F' });
+    document.fonts.add(face);
+    return face.load().then(() => true);
+  }).catch(() => false));
+  const fix = (elm) => {
+    if (!elm || elm.nodeType !== 1 || fixed.has(elm)) return;
+    fixed.add(elm);
+    loadFont();
+    const ff = getComputedStyle(elm).fontFamily || 'sans-serif';
+    if (!/AlalamyFlags/.test(ff)) elm.style.setProperty('font-family', '"AlalamyFlags", ' + ff, 'important');
+    if (elm.tagName === 'OPTION' || elm.tagName === 'OPTGROUP') fix(elm.closest('select'));
+  };
+  const scan = (root) => {
+    if (!root) return;
+    if (root.nodeType === 3) { if (FLAG.test(root.data)) fix(root.parentElement); return; }
+    if (root.nodeType !== 1 && root.nodeType !== 9 && root.nodeType !== 11) return;
+    const tag = root.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') { if (FLAG.test(root.value || '') || FLAG.test(root.placeholder || '')) fix(root); return; }
+    if (tag === 'SCRIPT' || tag === 'STYLE') return;
+    if (!FLAG.test(root.textContent || '')) {
+      if (root.querySelectorAll) for (const i of root.querySelectorAll('input')) if (FLAG.test(i.value || '') || FLAG.test(i.placeholder || '')) fix(i);
+      return;
+    }
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let n = w.nextNode(); n; n = w.nextNode()) if (FLAG.test(n.data)) fix(n.parentElement);
+    if (root.querySelectorAll) for (const i of root.querySelectorAll('input')) if (FLAG.test(i.value || '')) fix(i);
+  };
+  const start = () => {
+    scan(document.body);
+    new MutationObserver((list) => {
+      for (const m of list) {
+        if (m.type === 'characterData') scan(m.target);
+        else for (const n of m.addedNodes) scan(n);
+      }
+    }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+    // خانة الدولة اللي بتتغير بالكتابة
+    document.addEventListener('input', (e) => { const t = e.target; if (t && (t.tagName === 'INPUT') && FLAG.test(t.value || '')) fix(t); }, true);
+  };
+  if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', start); else start();
+})();

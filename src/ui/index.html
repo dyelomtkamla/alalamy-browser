@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src * data: crx:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src * data: crx:; media-src 'self' file: https: data: blob:; font-src 'self' file: data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
   <title>متصفح العالمي</title>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="learn.css">
@@ -99,6 +99,7 @@
     </div>
     <div id="newtab" class="hidden">
       <div class="ntGrid">
+      <aside id="ntEdgeR" class="ntEdge"></aside>
       <aside id="ntNewsSide" class="ntSide"></aside>
       <div class="ntCol">
         <div id="ntIncognito" class="hidden">🕶 أنت في وضع التصفح الخفي: لن يُحفظ السجل ولا الكوكيز ولا كلمات المرور، وكل شيء يُحذف أول ما تقفل نافذة التصفح المتخفي.</div>
@@ -124,6 +125,7 @@
         <div id="ntCopyright">جميع الحقوق محفوظة © 2026 <bdi>Ahmed Gamal Elshafey</bdi></div>
       </div>
       <aside id="ntSportsSide" class="ntSide"></aside>
+      <aside id="ntEdgeL" class="ntEdge"></aside>
       </div>
     </div>
   </div>
@@ -266,6 +268,7 @@
   <script src="session.js"></script>
   <script src="autofill.js"></script>
   <script src="widgets.js"></script>
+  <script src="edge.js"></script>
   <script src="polish.js"></script>
 </body>
 </html>

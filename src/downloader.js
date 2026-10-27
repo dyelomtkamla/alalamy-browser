@@ -208,5 +208,15 @@ async function update() {
   return { output: out.trim().split(/\r?\n/).pop(), version: await version() };
 }
 
+// صوت قصير من بحث يوتيوب (الأذان): أول نتيجة مدتها بين دقيقة و10 دقايق، بيتحفظ MP3
+async function fetchAudio(query, outBase) {
+  const args = [...baseArgs(), '--match-filter', 'duration > 60 & duration < 600', '--max-downloads', '1',
+    '-f', 'ba/b', '-x', '--audio-format', 'mp3', '--audio-quality', '5', '-o', outBase + '.%(ext)s', '--force-overwrites',
+    '--', 'ytsearch8:' + String(query).slice(0, 120)];
+  // yt-dlp بيخرج بكود 101 لما يوصل للحد الأقصى من التحميلات، وده معناه نجاح
+  try { await run(args, { timeout: 300000 }); } catch (e) { if (!fs.existsSync(outBase + '.mp3')) throw e; }
+  return outBase + '.mp3';
+}
+
 function ffmpegPath() { const d = ffmpegDir(); return d ? path.join(d, 'ffmpeg' + EXE) : 'ffmpeg'; }
-module.exports = { probe, download, cancel, autoUpdate, version, update, ffmpegPath };
+module.exports = { probe, download, cancel, autoUpdate, version, update, ffmpegPath, fetchAudio };

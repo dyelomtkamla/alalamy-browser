@@ -103,7 +103,7 @@ function prayerWidget() {
   };
   draw();
   clock._t = setInterval(draw, 30000);
-  return wgCard('prayer', 'مواقيت الصلاة', '🕌', clock, dates, next, rows, el('div', { class: 'wgFoot' }, cityBtn()));
+  return wgCard('prayer', 'مواقيت الصلاة', '🕌', clock, dates, next, rows, el('div', { class: 'wgFoot' }, cityBtn(), typeof adhanBtn === 'function' ? adhanBtn() : null));
 }
 
 /* ---- ملاحظات سريعة ---- */
@@ -173,15 +173,25 @@ function ratesWidget() {
 }
 
 function renderWidgets() {
-  for (const sel of ['#ntNewsSide', '#ntSportsSide']) { const old = $(sel + ' .wgStack'); if (old) old.remove(); }
+  for (const sel of ['#ntNewsSide', '#ntSportsSide', '#ntEdgeR', '#ntEdgeL']) { const old = $(sel + ' .wgStack'); if (old) old.remove(); }
   const inline = $('#ntWidgetsInline'); if (inline) inline.innerHTML = '';
   if (state.settings.showWidgets === false) return;
   const hide = new Set(wg.hidden || []);
-  const right = [['prayer', prayerWidget], ['notes', notesWidget]].filter(([k]) => !hide.has(k));
-  const left = [['weather', weatherWidget], ['rates', ratesWidget]].filter(([k]) => !hide.has(k));
-  $('#ntNewsSide').append(el('div', { class: 'wgStack' }, ...right.map(([, f]) => f())));
-  $('#ntSportsSide').append(el('div', { class: 'wgStack' }, ...left.map(([, f]) => f())));
-  if (inline) inline.append(...[...right, ...left].map(([, f]) => f()));
+  const keep = (list) => list.filter(([k]) => !hide.has(k));
+  const right = keep([['prayer', prayerWidget], ['notes', notesWidget]]);
+  const left = keep([['weather', weatherWidget], ['rates', ratesWidget]]);
+  // أدوات الأطراف (src/ui/edge.js): على الشاشة العريضة ليها عمود لوحدها، وأصغر من كده بتنزل تحت الأعمدة
+  const edge = typeof EDGE_WIDGETS === 'object' ? EDGE_WIDGETS : { right: [], left: [] };
+  const eR = keep(edge.right), eL = keep(edge.left);
+  const stack = (list) => el('div', { class: 'wgStack' }, ...list.map(([, f]) => f()));
+  if (!matchMedia('(min-width: 1240px)').matches) {
+    if (inline) inline.append(...[...right, ...left, ...eR, ...eL].map(([, f]) => f()));
+  } else if (matchMedia('(min-width: 1800px)').matches) {
+    $('#ntNewsSide').append(stack(right)); $('#ntSportsSide').append(stack(left));
+    $('#ntEdgeR').append(stack(eR)); $('#ntEdgeL').append(stack(eL));
+  } else {
+    $('#ntNewsSide').append(stack([...right, ...eR])); $('#ntSportsSide').append(stack([...left, ...eL]));
+  }
 }
 
 // بعد ما الأعمدة تترسم نحط الأدوات تحتها
@@ -197,10 +207,11 @@ function renderWidgets() {
 const oldAppearance = settingsSections.appearance;
 settingsSections.appearance = () => {
   const cards = oldAppearance();
-  const hiddenNames = { prayer: 'مواقيت الصلاة', notes: 'الملاحظات', weather: 'الطقس', rates: 'أسعار العملات' };
+  const hiddenNames = { prayer: 'مواقيت الصلاة', notes: 'الملاحظات', weather: 'الطقس', rates: 'أسعار العملات', ...(typeof EDGE_NAMES === 'object' ? EDGE_NAMES : {}) };
   const back = el('div', { class: 'btnrow' });
   for (const k of wg.hidden || []) back.append(el('button', { onclick: () => { wg.hidden = wg.hidden.filter(x => x !== k); wgSave(); back.querySelector(`[data-k="${k}"]`)?.remove(); renderWidgets(); }, 'data-k': k }, 'إظهار ' + (hiddenNames[k] || k)));
-  cards.push(card(settingRow('أدوات الصفحة الرئيسية', 'الطقس، مواقيت الصلاة والتاريخ الهجري، أسعار العملات ومحوّل، وملاحظات سريعة جنب الأخبار والكورة.', toggle('showWidgets', () => renderWidgets())),
-    settingRow('المدينة', 'للطقس ومواقيت الصلاة', el('button', { onclick: chooseCity }, '📍 ' + wg.city.name)), back));
+  cards.push(card(settingRow('أدوات الصفحة الرئيسية', 'الطقس، مواقيت الصلاة والأذان، أسعار العملات والدهب، الملاحظات والمهام، مؤقّت التركيز، آية اليوم والسبحة، التقويم، الماتشات وساعات البلاد.', toggle('showWidgets', () => renderWidgets())),
+    settingRow('المدينة', 'للطقس ومواقيت الصلاة', el('button', { onclick: chooseCity }, '📍 ' + wg.city.name)),
+    settingRow('صوت الأذان', 'مع كل صلاة: إسلام صبحي وعبد الرحمن مسعود والعفاسي بالتناوب، أو صوت من جهازك', typeof adhanMenu === 'function' ? el('button', { onclick: adhanMenu }, '🔔 الإعدادات') : null), back));
   return cards;
 };

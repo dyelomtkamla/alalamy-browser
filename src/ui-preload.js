@@ -118,6 +118,14 @@ contextBridge.exposeInMainWorld('api', {
   weather: invoke('widgets:weather'),
   rates: invoke('widgets:rates'),
   geocode: invoke('widgets:geocode'),
+  gold: invoke('widgets:gold'),
+  matches: invoke('widgets:matches'),
+  ayah: invoke('widgets:ayah'),
+  claim: invoke('ui:claim'),
+  adhanStatus: invoke('adhan:status'),
+  adhanPrepare: invoke('adhan:prepare'),
+  adhanFile: invoke('adhan:file'),
+  adhanPick: invoke('adhan:pick'),
   on: (channel, fn) => {
     if (listeners.includes(channel)) ipcRenderer.on(channel, (_e, data) => fn(data));
   },

@@ -1394,11 +1394,12 @@ ipcMain.handle('topsites', () => {
 });
 
 // الأخبار من مصادر RSS مجانية (من غير أي مفتاح): بي بي سي عربي + أخبار جوجل مصر
-const NEWS_FEEDS = process.env.ALALAMY_NEWS_URLS ? process.env.ALALAMY_NEWS_URLS.split(',') : [
+// أخبار جوجل حسب بلد المستخدم (gl=SA ...)، والبلاد اللي مالهاش نسخة عربي بتاخد الأخبار العربية العامة
+const NEWS_FEEDS = (cc) => process.env.ALALAMY_NEWS_URLS ? process.env.ALALAMY_NEWS_URLS.split(',') : [
   'https://feeds.bbci.co.uk/arabic/rss.xml',
-  'https://news.google.com/rss?hl=ar&gl=EG&ceid=EG:ar'
+  /^[A-Z]{2}$/.test(cc) && cc !== 'XX' ? `https://news.google.com/rss?hl=ar&gl=${cc}&ceid=${cc}:ar` : 'https://news.google.com/rss?hl=ar&gl=EG&ceid=EG:ar'
 ];
-let newsCache = { time: 0, items: [] };
+let newsCache = { time: 0, items: [], cc: '' };
 function decodeXml(s) {
   return String(s || '').replace(/^<!\[CDATA\[|\]\]>$/g, '')
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
@@ -1435,9 +1436,10 @@ async function fetchText(url) {
     return await r.text();
   } finally { clearTimeout(timer); }
 }
-ipcMain.handle('news:get', async () => {
-  if (Date.now() - newsCache.time < 20 * 60000 && newsCache.items.length) return newsCache.items;
-  const lists = await Promise.all(NEWS_FEEDS.map(u => fetchText(u).then(parseRss).catch(() => [])));
+ipcMain.handle('news:get', async (_e, cc) => {
+  cc = /^[A-Z]{2}$/.test(String(cc || '')) ? String(cc) : 'EG';
+  if (newsCache.cc === cc && Date.now() - newsCache.time < 20 * 60000 && newsCache.items.length) return newsCache.items;
+  const lists = await Promise.all(NEWS_FEEDS(cc).map(u => fetchText(u).then(parseRss).catch(() => [])));
   // نخلط المصادر: خبر بصورة ثم خبر من غير صورة، والأحدث الأول
   const seen = new Set(), items = [];
   const withImg = lists.flat().filter(i => i.image).sort((a, b) => b.time - a.time);
@@ -1447,7 +1449,7 @@ ipcMain.handle('news:get', async () => {
       if (i && !seen.has(i.title)) { seen.add(i.title); items.push(i); }
     }
   }
-  if (items.length) newsCache = { time: Date.now(), items };
+  if (items.length) newsCache = { time: Date.now(), items, cc };
   return items;
 });
 

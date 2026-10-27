@@ -64,18 +64,9 @@ const SOCIAL_SITES = [
   ['Telegram', 'https://web.telegram.org/', '#229ed9'], ['Messenger', 'https://www.messenger.com/', '#a033ff'],
   ['Snapchat', 'https://web.snapchat.com/', '#f7d000'], ['Gmail', 'https://mail.google.com/', '#ea4335']
 ];
-const NEWS_SITES = [
-  ['اليوم السابع', 'https://www.youm7.com/'], ['مصراوي', 'https://www.masrawy.com/'], ['الأهرام', 'https://gate.ahram.org.eg/'],
-  ['المصري اليوم', 'https://www.almasryalyoum.com/'], ['الوطن', 'https://www.elwatannews.com/'], ['الجزيرة', 'https://www.aljazeera.net/'],
-  ['BBC عربي', 'https://www.bbc.com/arabic'], ['سكاي نيوز عربية', 'https://www.skynewsarabia.com/'], ['العربية', 'https://www.alarabiya.net/'],
-  ['CNN بالعربية', 'https://arabic.cnn.com/']
-];
-const SPORTS_SITES = [
-  ['يلا كورة', 'https://www.yallakora.com/'], ['في الجول', 'https://www.filgoal.com/'], ['كووورة', 'https://www.kooora.com/'],
-  ['بطولات', 'https://www.btolat.com/'], ['beIN SPORTS', 'https://www.beinsports.com/ar-mena/'], ['جول بالعربي', 'https://www.goal.com/ar'],
-  ['الأهلي', 'https://www.alahlyegypt.com/'], ['FIFA', 'https://www.fifa.com/ar'], ['نتائج مباشرة', 'https://www.livescore.com/ar/'],
-  ['ESPN', 'https://www.espn.com/soccer/']
-];
+// الأخبار والرياضة حسب بلد المستخدم (countries.js)
+const newsSites = () => country().news;
+const sportsSites = () => country().sports;
 /* ---- «مواقع مجالك»: كل واحد يختار مجاله والصفحة تتظبط عليه ---- */
 const WORK_CATS = [
   { id: 'meta', name: 'ميتا للمعلنين', em: '📣', sites: [
@@ -122,11 +113,8 @@ const WORK_CATS = [
     ['Udemy', 'https://www.udemy.com/', '#a435f0'], ['إدراك', 'https://www.edraak.org/', '#e3342f'],
     ['Khan Academy', 'https://ar.khanacademy.org/', '#14bf96'], ['ويكيبيديا', 'https://ar.wikipedia.org/', '#000000'],
     ['Google Scholar', 'https://scholar.google.com/', '#4285f4'], ['Duolingo', 'https://www.duolingo.com/', '#58cc02']] },
-  { id: 'shop', name: 'تسوق', em: '🛒', sites: [
-    ['Amazon مصر', 'https://www.amazon.eg/', '#ff9900'], ['Noon', 'https://www.noon.com/egypt-ar/', '#feee00'],
-    ['Jumia', 'https://www.jumia.com.eg/ar/', '#f68b1e'], ['AliExpress', 'https://ar.aliexpress.com/', '#e62e04'],
-    ['Temu', 'https://www.temu.com/', '#fb7701'], ['SHEIN', 'https://ar.shein.com/', '#000000'],
-    ['دوبيزل', 'https://www.dubizzle.com.eg/', '#e00000'], ['B.TECH', 'https://btech.com/ar/', '#e30613']] }
+  // مواقع التسوق حسب البلد
+  { id: 'shop', name: 'تسوق', em: '🛒', get sites() { return country().shop; } }
 ];
 const BASE_CATS = [{ id: 'news', name: 'أخبار', em: '📰' }, { id: 'sports', name: 'كورة ورياضة', em: '⚽' }];
 const ALL_CATS = [...BASE_CATS, ...WORK_CATS];
@@ -241,9 +229,9 @@ function renderSites() {
   if (temp) return;
   const mine = interests();
   const news = mine.includes('news'), sports = mine.includes('sports');
-  if (news) $('#ntNewsSide').append(siteList('أخبار', '📰', NEWS_SITES));
-  if (sports) $('#ntSportsSide').append(siteList('كورة ورياضة', '⚽', SPORTS_SITES));
-  $('#ntSitesInline').append(...[news && siteList('أخبار', '📰', NEWS_SITES), sports && siteList('كورة ورياضة', '⚽', SPORTS_SITES)].filter(Boolean));
+  if (news) $('#ntNewsSide').append(siteList('أخبار', '📰', newsSites()));
+  if (sports) $('#ntSportsSide').append(siteList('كورة ورياضة', '⚽', sportsSites()));
+  $('#ntSitesInline').append(...[news && siteList('أخبار', '📰', newsSites()), sports && siteList('كورة ورياضة', '⚽', sportsSites())].filter(Boolean));
 }
 
 /* ---- الأخبار ---- */
@@ -257,13 +245,14 @@ function timeAgo(t) {
 }
 const SHARE_SVG = '<svg viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>';
 const NEWTAB_SVG = '<svg viewBox="0 0 24 24"><path d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>';
-async function renderFeed() {
+async function renderFeed(force) {
   const feed = $('#ntFeed');
   if (state.settings.showFeed === false || (state.active && state.active.temp)) { feed.innerHTML = ''; return; }
   // ما نحملش الأخبار كل ما تفتح تبويب؛ كل 20 دقيقة كفاية
-  if (feed.children.length && Date.now() - nt.newsLoaded < 20 * 60000) return;
+  if (!force && feed.children.length && Date.now() - nt.newsLoaded < 20 * 60000) return;
   let items = [];
-  try { items = await api.getNews(); } catch { items = []; }
+  // أخبار جوجل لبلد المستخدم
+  try { items = await api.getNews(countryCode()); } catch { items = []; }
   if (!items.length) { if (!feed.children.length) feed.innerHTML = ''; return; }
   nt.newsLoaded = Date.now();
   feed.innerHTML = '';

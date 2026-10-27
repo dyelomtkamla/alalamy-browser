@@ -111,26 +111,29 @@ function focusWidget() {
 /* ---------- أسعار الدهب بالجنيه ---------- */
 function goldWidget() {
   const body = el('div', { class: 'wgRates' }, el('div', { class: 'wgLoad' }, 'بنجيب أسعار الدهب...'));
-  const load = () => Promise.all([api.gold(), api.rates()]).then(([g, r]) => {
+  // بعملة بلد المستخدم وعياراتها (الخليج ٢٤ و٢٢، مصر ٢١ والجنيه الدهب)
+  const C = country();
+  const load = () => Promise.all([api.gold(), api.rates(C.cur)]).then(([g, r]) => {
     body.innerHTML = '';
-    const egp = r && r.rates && r.rates.EGP;
+    const egp = C.cur === 'USD' ? 1 : r && r.rates && r.rates[C.cur];
     if (!g || !g.usdGram || !egp) { body.append(el('div', { class: 'wgLoad' }, 'مفيش اتصال بالنت دلوقتي')); return; }
-    const fmt = (v) => Math.round(v).toLocaleString('ar-EG') + ' ج.م';
+    const big = g.usdGram * egp >= 100;
+    const fmt = (v) => v.toLocaleString('ar-EG', { maximumFractionDigits: big ? 0 : 2 }) + ' ' + C.sym;
     const row = (label, mult) => {
       const now = g.usdGram * egp * mult;
       const diff = g.prevUsdGram ? (g.usdGram - g.prevUsdGram) * egp * mult : 0;
-      const d = Math.round(diff);
+      const d = big ? Math.round(diff) : Math.round(diff * 100) / 100;
       return el('div', { class: 'wgRate' }, el('span', {}, label), el('span', {}, el('b', {}, fmt(now)),
         d ? el('small', { class: d > 0 ? 'up' : 'dn' }, (d > 0 ? ' ▲ ' : ' ▼ ') + Math.abs(d).toLocaleString('ar-EG')) : null));
     };
-    body.append(row('عيار ٢١', 21 / 24), row('عيار ٢٤', 1), row('عيار ١٨', 18 / 24), row('الجنيه الدهب', 21 / 24 * 8),
+    body.append(...C.karats.map(k => row('عيار ' + k.toLocaleString('ar-EG'), k / 24)), C.pound ? row('الجنيه الدهب', 21 / 24 * 8) : '',
       el('small', { class: 'wgUpd' }, 'سعر لحظي بسعر الدولار دلوقتي، من غير مصنعية · ' + new Date(g.updated || Date.now()).toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-digit' }) + (g.stale || r.stale ? ' (من غير نت)' : '')));
   });
   // بيتحدث لوحده كل دقيقة طول ما الصفحة مفتوحة
   load();
   const t = setInterval(() => { if (alive(body, t) && !document.hidden) load(); }, 60000);
   return wgCard('gold', 'أسعار الدهب النهارده', '🪙', body, el('div', { class: 'wgFoot' }, el('span'),
-    el('button', { class: 'wgCity', onclick: () => navigate('https://www.google.com/search?q=' + encodeURIComponent('سعر الدهب النهارده في مصر')) }, 'التفاصيل ↗')));
+    el('button', { class: 'wgCity', onclick: () => navigate('https://www.google.com/search?q=' + encodeURIComponent('سعر الذهب اليوم في ' + (C.code === 'XX' ? 'العالم' : C.name))) }, 'التفاصيل ↗')));
 }
 
 /* ---------- اللي اتقفل من شوية ---------- */
@@ -272,7 +275,7 @@ async function dayMenu(key, d) {
 function matchesWidget() {
   const body = el('div', { class: 'wgMatches' }, el('div', { class: 'wgLoad' }, 'بنجيب الماتشات...'));
   const tz = wg.city.tz;
-  const load = () => api.matches(ymdOf(new Date(), tz).replace(/-/g, '')).then((list) => {
+  const load = () => api.matches(ymdOf(new Date(), tz).replace(/-/g, ''), countryCode()).then((list) => {
     body.innerHTML = '';
     if (!list) { body.append(el('div', { class: 'wgLoad' }, 'مفيش اتصال بالنت دلوقتي')); return; }
     if (!list.length) { body.append(el('div', { class: 'wgLoad' }, 'مفيش ماتشات مهمة النهارده')); return; }
@@ -298,7 +301,10 @@ function matchesWidget() {
 /* ---------- الساعة في بلاد العملاء ---------- */
 const CLOCKS_DEF = [{ name: 'مكة', tz: 'Asia/Riyadh' }, { name: 'دبي', tz: 'Asia/Dubai' }, { name: 'لندن', tz: 'Europe/London' }, { name: 'نيويورك', tz: 'America/New_York' }];
 function clocksWidget() {
-  if (!Array.isArray(wg.clocks)) wg.clocks = CLOCKS_DEF.slice();
+  // الساعات الافتراضية حسب البلد لحد ما المستخدم يعدّلها
+  if (!wg.clocksCustom && Array.isArray(wg.clocks) && JSON.stringify(wg.clocks) === JSON.stringify(CLOCKS_DEF)) delete wg.clocks; // الافتراضي القديم
+  if (!Array.isArray(wg.clocks)) wg.clocks = (country().clocks || []).map(([name, tz]) => ({ name, tz }));
+  if (!wg.clocks.length && !wg.clocksCustom) wg.clocks = CLOCKS_DEF.slice();
   const grid = el('div', { class: 'wgClocks' });
   const draw = () => {
     grid.innerHTML = '';
@@ -312,7 +318,7 @@ function clocksWidget() {
       } catch { time = '؟'; }
       grid.append(el('button', { class: 'wgClk', title: 'اضغط علشان تشيلها', onclick: async () => {
         const r = await api.uiMenu([{ id: 'rm', label: '🗑 شيل ' + c.name }]);
-        if (r === 'rm') { wg.clocks.splice(i, 1); wgSave(); draw(); }
+        if (r === 'rm') { wg.clocks.splice(i, 1); wg.clocksCustom = true; wgSave(); draw(); }
       } }, el('span', {}, c.name), el('b', {}, time, el('small', {}, day))));
     });
     if (wg.clocks.length < 8) grid.append(el('button', { class: 'wgClk add', onclick: addClock }, '＋ مدينة'));
@@ -329,7 +335,7 @@ function clocksWidget() {
       pick = res[Number(id)];
     }
     if (!pick.tz) return toast('مش عارف توقيت المدينة دي');
-    wg.clocks.push({ name: pick.name, tz: pick.tz }); wgSave(); draw();
+    wg.clocks.push({ name: pick.name, tz: pick.tz }); wg.clocksCustom = true; wgSave(); draw();
   }
   draw();
   const t = setInterval(() => { if (alive(grid, t)) draw(); }, 30000);

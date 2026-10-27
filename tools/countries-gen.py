@@ -1,0 +1,97 @@
+# بيانات «الرئيسية حسب بلدك» — مصدر واحد للكمبيوتر (src/ui/countries.js) والموبايل (res/raw/countries.json)
+import json, sys
+PAN_NEWS = [['الجزيرة', 'https://www.aljazeera.net/'], ['العربية', 'https://www.alarabiya.net/'], ['سكاي نيوز عربية', 'https://www.skynewsarabia.com/'],
+            ['BBC عربي', 'https://www.bbc.com/arabic'], ['CNN بالعربية', 'https://arabic.cnn.com/']]
+PAN_SPORTS = [['كووورة', 'https://www.kooora.com/'], ['beIN SPORTS', 'https://www.beinsports.com/ar-mena/'], ['جول بالعربي', 'https://www.goal.com/ar'],
+              ['FIFA', 'https://www.fifa.com/ar'], ['نتائج مباشرة', 'https://www.livescore.com/ar/']]
+PAN_SHOP = [['AliExpress', 'https://ar.aliexpress.com/', '#e62e04'], ['Temu', 'https://www.temu.com/', '#fb7701'], ['SHEIN', 'https://ar.shein.com/', '#000000']]
+def C(code, name, flag, cur, curAr, sym, city, tzs, news, sports=(), shop=(), league=None, espn=None, pm=(18.5, 17.5), karats=(24, 22, 21, 18), clocks=None, fx=None, pound=False):
+    return dict(code=code, name=name, flag=flag, cur=cur, curAr=curAr, sym=sym, city=dict(zip(('name', 'lat', 'lon', 'tz'), city)), tzs=list(tzs),
+                news=[list(x) for x in news] + PAN_NEWS[:max(0, 10 - len(news))], sports=[list(x) for x in sports] + PAN_SPORTS[:max(0, 10 - len(sports))],
+                shop=[list(x) for x in shop] + PAN_SHOP, league=league, espn=espn, pm=list(pm), karats=list(karats), pound=pound,
+                clocks=clocks, fx=fx)
+MECCA, CAIRO, DUBAI, LONDON, NY, RIYADH = ['مكة', 'Asia/Riyadh'], ['القاهرة', 'Africa/Cairo'], ['دبي', 'Asia/Dubai'], ['لندن', 'Europe/London'], ['نيويورك', 'America/New_York'], ['الرياض', 'Asia/Riyadh']
+GULF_FX = ['USD', 'EUR', 'EGP', 'SAR', 'AED', 'KWD']
+countries = [
+  C('EG', 'مصر', '🇪🇬', 'EGP', 'الجنيه', 'ج.م', ('القاهرة', 30.0444, 31.2357, 'Africa/Cairo'), ['Africa/Cairo'],
+    [['اليوم السابع', 'https://www.youm7.com/'], ['مصراوي', 'https://www.masrawy.com/'], ['الأهرام', 'https://gate.ahram.org.eg/'], ['المصري اليوم', 'https://www.almasryalyoum.com/'], ['الوطن', 'https://www.elwatannews.com/']],
+    [['يلا كورة', 'https://www.yallakora.com/'], ['في الجول', 'https://www.filgoal.com/'], ['كووورة', 'https://www.kooora.com/'], ['بطولات', 'https://www.btolat.com/'], ['beIN SPORTS', 'https://www.beinsports.com/ar-mena/'], ['جول بالعربي', 'https://www.goal.com/ar'], ['الأهلي', 'https://www.alahlyegypt.com/'], ['FIFA', 'https://www.fifa.com/ar'], ['نتائج مباشرة', 'https://www.livescore.com/ar/'], ['ESPN', 'https://www.espn.com/soccer/']],
+    [['Amazon مصر', 'https://www.amazon.eg/', '#ff9900'], ['Noon', 'https://www.noon.com/egypt-ar/', '#feee00'], ['Jumia', 'https://www.jumia.com.eg/ar/', '#f68b1e'], ['دوبيزل', 'https://www.dubizzle.com.eg/', '#e00000'], ['B.TECH', 'https://btech.com/ar/', '#e30613']],
+    league=['الدوري المصري', '^egypt\\|premier league'], espn='egy.1', pm=(19.5, 17.5), karats=(21, 24, 18), pound=True,
+    clocks=[MECCA, DUBAI, LONDON, NY], fx=['USD', 'EUR', 'SAR', 'AED', 'KWD']),
+  C('SA', 'السعودية', '🇸🇦', 'SAR', 'الريال', 'ر.س', ('الرياض', 24.7136, 46.6753, 'Asia/Riyadh'), ['Asia/Riyadh'],
+    [['سبق', 'https://sabq.org/'], ['عكاظ', 'https://www.okaz.com.sa/'], ['الرياض', 'https://www.alriyadh.com/'], ['الوطن', 'https://www.alwatan.com.sa/'], ['اليوم', 'https://www.alyaum.com/'], ['واس', 'https://www.spa.gov.sa/']],
+    [['الرياضية', 'https://arriyadiyah.com/'], ['دوري روشن', 'https://www.spl.com.sa/ar'], ['الهلال', 'https://alhilal.com/'], ['النصر', 'https://alnassr.sa/'], ['الاتحاد', 'https://ittihadclub.sa/']],
+    [['Amazon السعودية', 'https://www.amazon.sa/', '#ff9900'], ['Noon', 'https://www.noon.com/saudi-ar/', '#feee00'], ['جرير', 'https://www.jarir.com/', '#e31e24'], ['إكسترا', 'https://www.extra.com/ar-sa/', '#ff6600'], ['حراج', 'https://haraj.com.sa/', '#00a651']],
+    league=['الدوري السعودي', '^saudi|saudi pro|roshn'], espn='ksa.1', pm=(18.5, 90), clocks=[CAIRO, DUBAI, LONDON, NY], fx=['USD', 'EUR', 'EGP', 'AED', 'KWD']),
+  C('AE', 'الإمارات', '🇦🇪', 'AED', 'الدرهم', 'د.إ', ('دبي', 25.2048, 55.2708, 'Asia/Dubai'), ['Asia/Dubai'],
+    [['الإمارات اليوم', 'https://www.emaratalyoum.com/'], ['البيان', 'https://www.albayan.ae/'], ['الخليج', 'https://www.alkhaleej.ae/'], ['الاتحاد', 'https://www.alittihad.ae/'], ['وام', 'https://www.wam.ae/ar']],
+    [['دوري أدنوك', 'https://www.proleague.ae/'], ['سبورت 360', 'https://arabic.sport360.com/']],
+    [['Amazon الإمارات', 'https://www.amazon.ae/', '#ff9900'], ['Noon', 'https://www.noon.com/uae-ar/', '#feee00'], ['دوبيزل', 'https://dubai.dubizzle.com/', '#e00000'], ['شرف دي جي', 'https://uae.sharafdg.com/', '#0b2d71']],
+    league=['دوري الإمارات', '^united arab emirates\\||^uae\\|'], espn='uae.1', pm=(18.2, 18.2), clocks=[MECCA, CAIRO, LONDON, NY], fx=['USD', 'EUR', 'EGP', 'SAR', 'INR']),
+  C('KW', 'الكويت', '🇰🇼', 'KWD', 'الدينار', 'د.ك', ('الكويت', 29.3759, 47.9774, 'Asia/Kuwait'), ['Asia/Kuwait'],
+    [['القبس', 'https://www.alqabas.com/'], ['الراي', 'https://www.alraimedia.com/'], ['الأنباء', 'https://www.alanba.com.kw/'], ['الجريدة', 'https://www.aljarida.com/'], ['كونا', 'https://www.kuna.net.kw/']],
+    [['سبورت 360', 'https://arabic.sport360.com/']],
+    [['Amazon', 'https://www.amazon.com/', '#ff9900'], ['Noon', 'https://www.noon.com/kuwait-ar/', '#feee00'], ['Xcite', 'https://www.xcite.com/', '#0055a5'], ['4Sale', 'https://www.q84sale.com/ar', '#ff5a00']],
+    league=['الدوري الكويتي', '^kuwait\\|'], pm=(18, 17.5), clocks=[MECCA, CAIRO, DUBAI, LONDON], fx=['USD', 'EUR', 'EGP', 'SAR', 'AED']),
+  C('QA', 'قطر', '🇶🇦', 'QAR', 'الريال', 'ر.ق', ('الدوحة', 25.2854, 51.5310, 'Asia/Qatar'), ['Asia/Qatar'],
+    [['الراية', 'https://www.raya.com/'], ['الشرق', 'https://al-sharq.com/'], ['الوطن', 'https://www.al-watan.com/'], ['قنا', 'https://www.qna.org.qa/ar'], ['الجزيرة', 'https://www.aljazeera.net/']],
+    [['الكأس', 'https://www.alkass.net/'], ['دوري نجوم قطر', 'https://www.qsl.qa/ar']],
+    [['Amazon', 'https://www.amazon.com/', '#ff9900'], ['Noon', 'https://www.noon.com/', '#feee00'], ['جمبو', 'https://www.jumbo.com.qa/', '#e30613']],
+    league=['دوري نجوم قطر', '^qatar\\|'], pm=(18, 90), clocks=[MECCA, CAIRO, DUBAI, LONDON], fx=['USD', 'EUR', 'EGP', 'SAR', 'AED']),
+  C('BH', 'البحرين', '🇧🇭', 'BHD', 'الدينار', 'د.ب', ('المنامة', 26.2285, 50.5860, 'Asia/Bahrain'), ['Asia/Bahrain'],
+    [['الأيام', 'https://www.alayam.com/'], ['الوطن', 'https://alwatannews.net/'], ['أخبار الخليج', 'https://www.akhbar-alkhaleej.com/'], ['بنا', 'https://www.bna.bh/']],
+    shop=[['Amazon', 'https://www.amazon.com/', '#ff9900'], ['Noon', 'https://www.noon.com/', '#feee00']],
+    league=['الدوري البحريني', '^bahrain\\|'], pm=(18.5, 90), clocks=[MECCA, CAIRO, DUBAI, LONDON], fx=['USD', 'EUR', 'EGP', 'SAR', 'AED']),
+  C('OM', 'عُمان', '🇴🇲', 'OMR', 'الريال', 'ر.ع', ('مسقط', 23.5880, 58.3829, 'Asia/Muscat'), ['Asia/Muscat'],
+    [['عُمان', 'https://www.omandaily.om/'], ['الوطن', 'https://alwatan.com/'], ['الرؤية', 'https://alroya.om/'], ['أثير', 'https://www.atheer.om/']],
+    shop=[['Amazon', 'https://www.amazon.com/', '#ff9900'], ['Noon', 'https://www.noon.com/', '#feee00']],
+    league=['الدوري العماني', '^oman\\|'], pm=(18, 17), clocks=[MECCA, CAIRO, DUBAI, LONDON], fx=['USD', 'EUR', 'EGP', 'SAR', 'AED']),
+  C('JO', 'الأردن', '🇯🇴', 'JOD', 'الدينار', 'د.أ', ('عمّان', 31.9454, 35.9284, 'Asia/Amman'), ['Asia/Amman'],
+    [['الرأي', 'https://alrai.com/'], ['الغد', 'https://alghad.com/'], ['عمون', 'https://www.ammonnews.net/'], ['رؤيا', 'https://royanews.tv/'], ['بترا', 'https://petra.gov.jo/']],
+    shop=[['OpenSooq', 'https://jo.opensooq.com/ar', '#0062cc'], ['Amazon', 'https://www.amazon.com/', '#ff9900']],
+    league=['الدوري الأردني', '^jordan\\|'], pm=(18, 18), karats=(24, 21, 18), clocks=[MECCA, CAIRO, DUBAI, LONDON], fx=['USD', 'EUR', 'SAR', 'AED', 'EGP']),
+  C('IQ', 'العراق', '🇮🇶', 'IQD', 'الدينار', 'د.ع', ('بغداد', 33.3152, 44.3661, 'Asia/Baghdad'), ['Asia/Baghdad'],
+    [['السومرية', 'https://www.alsumaria.tv/'], ['شفق نيوز', 'https://shafaq.com/ar'], ['الصباح', 'https://alsabaah.iq/'], ['رووداو', 'https://www.rudaw.net/arabic']],
+    league=['الدوري العراقي', '^iraq\\|'], pm=(18, 17), karats=(24, 21, 18), clocks=[MECCA, CAIRO, DUBAI, LONDON], fx=['USD', 'EUR', 'SAR', 'AED', 'TRY']),
+  C('LB', 'لبنان', '🇱🇧', 'LBP', 'الليرة', 'ل.ل', ('بيروت', 33.8938, 35.5018, 'Asia/Beirut'), ['Asia/Beirut'],
+    [['النهار', 'https://www.annahar.com/'], ['الأخبار', 'https://al-akhbar.com/'], ['LBCI', 'https://www.lbcgroup.tv/'], ['MTV لبنان', 'https://www.mtv.com.lb/']],
+    league=['الدوري اللبناني', '^lebanon\\|'], pm=(18, 18), karats=(24, 21, 18), clocks=[MECCA, CAIRO, DUBAI, LONDON], fx=['USD', 'EUR', 'SAR', 'AED', 'EGP']),
+  C('SY', 'سوريا', '🇸🇾', 'SYP', 'الليرة', 'ل.س', ('دمشق', 33.5138, 36.2765, 'Asia/Damascus'), ['Asia/Damascus'],
+    [['سانا', 'https://sana.sy/'], ['عنب بلدي', 'https://www.enabbaladi.net/']],
+    league=['الدوري السوري', '^syria\\|'], pm=(18, 18), karats=(24, 21, 18), clocks=[MECCA, CAIRO, DUBAI, LONDON], fx=['USD', 'EUR', 'TRY', 'SAR', 'AED']),
+  C('PS', 'فلسطين', '🇵🇸', 'ILS', 'الشيكل', '₪', ('القدس', 31.7683, 35.2137, 'Asia/Hebron'), ['Asia/Gaza', 'Asia/Hebron'],
+    [['وفا', 'https://www.wafa.ps/'], ['معا', 'https://www.maannews.net/'], ['القدس', 'https://www.alquds.com/']],
+    league=['الدوري الفلسطيني', '^palestine\\|'], pm=(18, 18), karats=(24, 21, 18), clocks=[MECCA, CAIRO, DUBAI, LONDON], fx=['USD', 'EUR', 'JOD', 'EGP', 'SAR']),
+  C('MA', 'المغرب', '🇲🇦', 'MAD', 'الدرهم', 'د.م', ('الرباط', 34.0209, -6.8416, 'Africa/Casablanca'), ['Africa/Casablanca', 'Africa/El_Aaiun'],
+    [['هسبريس', 'https://www.hespress.com/'], ['اليوم 24', 'https://alyaoum24.com/'], ['Le360', 'https://ar.le360.ma/'], ['شوف تيفي', 'https://chouftv.ma/']],
+    [['البطولة', 'https://www.elbotola.com/'], ['هسبورت', 'https://hesport.com/']],
+    [['Jumia المغرب', 'https://www.jumia.ma/', '#f68b1e'], ['Avito', 'https://www.avito.ma/', '#0f7fff']],
+    league=['البطولة المغربية', '^morocco\\|'], espn='mar.1', pm=(19, 17), karats=(24, 18), clocks=[MECCA, CAIRO, ['باريس', 'Europe/Paris'], LONDON], fx=['USD', 'EUR', 'SAR', 'AED', 'GBP']),
+  C('DZ', 'الجزائر', '🇩🇿', 'DZD', 'الدينار', 'د.ج', ('الجزائر', 36.7538, 3.0588, 'Africa/Algiers'), ['Africa/Algiers'],
+    [['الشروق', 'https://www.echoroukonline.com/'], ['النهار', 'https://www.ennaharonline.com/'], ['الخبر', 'https://www.elkhabar.com/']],
+    shop=[['Jumia الجزائر', 'https://www.jumia.dz/', '#f68b1e'], ['Ouedkniss', 'https://www.ouedkniss.com/', '#0aa1dd']],
+    league=['الدوري الجزائري', '^algeria\\|'], pm=(18, 17), karats=(24, 18), clocks=[MECCA, CAIRO, ['باريس', 'Europe/Paris'], LONDON], fx=['USD', 'EUR', 'SAR', 'AED', 'GBP']),
+  C('TN', 'تونس', '🇹🇳', 'TND', 'الدينار', 'د.ت', ('تونس', 36.8065, 10.1815, 'Africa/Tunis'), ['Africa/Tunis'],
+    [['موزاييك', 'https://www.mosaiquefm.net/ar/'], ['باب نات', 'https://ar.babnet.net/'], ['الصباح', 'https://www.assabahnews.tn/']],
+    shop=[['Jumia تونس', 'https://www.jumia.com.tn/', '#f68b1e'], ['Tayara', 'https://www.tayara.tn/', '#e00000']],
+    league=['الدوري التونسي', '^tunisia\\|'], pm=(18, 18), karats=(24, 18), clocks=[MECCA, CAIRO, ['باريس', 'Europe/Paris'], LONDON], fx=['USD', 'EUR', 'SAR', 'AED', 'LYD']),
+  C('LY', 'ليبيا', '🇱🇾', 'LYD', 'الدينار', 'د.ل', ('طرابلس', 32.8872, 13.1913, 'Africa/Tripoli'), ['Africa/Tripoli'],
+    [['بوابة الوسط', 'https://alwasat.ly/'], ['ليبيا الأحرار', 'https://libyaalahrar.net/']],
+    league=['الدوري الليبي', '^libya\\|'], pm=(18, 17), karats=(24, 21, 18), clocks=[MECCA, CAIRO, DUBAI, LONDON], fx=['USD', 'EUR', 'EGP', 'TND', 'TRY']),
+  C('SD', 'السودان', '🇸🇩', 'SDG', 'الجنيه', 'ج.س', ('الخرطوم', 15.5007, 32.5599, 'Africa/Khartoum'), ['Africa/Khartoum'],
+    [['سودان تربيون', 'https://sudantribune.net/'], ['الراكوبة', 'https://www.alrakoba.net/']],
+    league=['الدوري السوداني', '^sudan\\|'], pm=(19.5, 17.5), karats=(24, 21, 18), clocks=[MECCA, CAIRO, DUBAI, LONDON], fx=['USD', 'EUR', 'EGP', 'SAR', 'AED']),
+  C('YE', 'اليمن', '🇾🇪', 'YER', 'الريال', 'ر.ي', ('صنعاء', 15.3694, 44.1910, 'Asia/Aden'), ['Asia/Aden'],
+    [['المصدر أونلاين', 'https://almasdaronline.com/'], ['سبأ', 'https://www.saba.ye/']],
+    league=None, pm=(18.5, 90), karats=(24, 21, 18), clocks=[MECCA, CAIRO, DUBAI, LONDON], fx=['USD', 'SAR', 'EUR', 'AED', 'EGP']),
+  C('XX', 'بلد تاني', '🌍', 'USD', 'الدولار', '$', ('مكة', 21.3891, 39.8579, 'Asia/Riyadh'), [], [], league=None, pm=(18, 17), karats=(24, 22, 21, 18),
+    clocks=[MECCA, CAIRO, DUBAI, LONDON], fx=['EUR', 'GBP', 'SAR', 'AED', 'EGP']),
+]
+data = {c['code']: c for c in countries}
+for c in countries:
+    if c['fx'] is None: c['fx'] = GULF_FX
+out = json.dumps(data, ensure_ascii=False, separators=(',', ':'))
+open(sys.argv[1], 'w', encoding='utf-8').write("'use strict';\n/* مولّد من tools/countries-gen.py — الرئيسية حسب بلد المستخدم (أخبار، رياضة، عملة، دهب، دوري، مواقيت، ساعات، تسوق) */\nconst COUNTRIES = " + out + ";\n")
+open(sys.argv[2], 'w', encoding='utf-8').write(out)
+print(len(countries))

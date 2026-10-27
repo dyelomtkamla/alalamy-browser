@@ -7,6 +7,15 @@ const WG_KEY = 'alalamy.widgets';
 const wg = { city: { name: 'القاهرة', lat: 30.0444, lon: 31.2357, tz: 'Africa/Cairo' }, convAmt: 100, convCur: 'USD', notes: '', hidden: [] };
 try { Object.assign(wg, JSON.parse(localStorage.getItem(WG_KEY) || '{}')); } catch { /* ignore */ }
 const wgSave = () => { try { localStorage.setItem(WG_KEY, JSON.stringify(wg)); } catch { /* ignore */ } };
+// المدينة الافتراضية = عاصمة بلد المستخدم (لحد ما يختار مدينة بنفسه)
+function cityFromCountry() {
+  // اللي كان مختار مدينة غير القاهرة قبل كده نعتبرها اختياره
+  if (wg.cityChosen === undefined && wg.city && wg.city.name !== 'القاهرة') wg.cityChosen = true;
+  if (wg.cityChosen) return;
+  const c = country().city;
+  if (wg.city.tz !== c.tz || wg.city.name !== c.name) { wg.city = Object.assign({}, c); wgSave(); }
+}
+cityFromCountry();
 
 /* ---- مواقيت الصلاة (خوارزمية PrayTimes.org) ---- */
 const dtr = (d) => d * Math.PI / 180, rtd = (r) => r * 180 / Math.PI;
@@ -27,7 +36,9 @@ function tzOffsetHours(tz, date) {
     return Math.round((asUTC - date.getTime()) / 60000) / 60;
   } catch { return -date.getTimezoneOffset() / 60; }
 }
+// طريقة الحساب حسب البلد: [زاوية الفجر، زاوية العشاء أو دقايق بعد المغرب (أم القرى ٩٠ د)]
 function prayerTimes(date, lat, lon, tz) {
+  const PM = (typeof country === 'function' && country().pm) || [19.5, 17.5];
   const y = date.getFullYear(), m = date.getMonth() + 1, d = date.getDate();
   const A = Math.floor((m <= 2 ? y - 1 : y) / 100), B = 2 - A + Math.floor(A / 4);
   const jd0 = Math.floor(365.25 * ((m <= 2 ? y - 1 : y) + 4716)) + Math.floor(30.6001 * ((m <= 2 ? m + 12 : m) + 1)) + d + B - 1524.5;
@@ -41,8 +52,8 @@ function prayerTimes(date, lat, lon, tz) {
   const asr = (t) => { const decl = sunPos(jDate + t).decl; return angleTime(-rtd(Math.atan(1 / (1 + Math.tan(dtr(Math.abs(lat - decl)))))), t); };
   const tzo = tzOffsetHours(tz, date);
   const raw = {
-    fajr: angleTime(19.5, 5 / 24, true), sunrise: angleTime(0.833, 6 / 24, true), dhuhr: midDay(12 / 24) + 1 / 60,
-    asr: asr(13 / 24), maghrib: angleTime(0.833, 18 / 24), isha: angleTime(17.5, 18 / 24)
+    fajr: angleTime(PM[0], 5 / 24, true), sunrise: angleTime(0.833, 6 / 24, true), dhuhr: midDay(12 / 24) + 1 / 60,
+    asr: asr(13 / 24), maghrib: angleTime(0.833, 18 / 24), isha: angleTime(PM[1] >= 60 ? 0.833 : PM[1], 18 / 24) + (PM[1] >= 60 ? PM[1] / 60 : 0)
   };
   // الأوقات بتوقيت المدينة؛ بنحوّلها لوقت حقيقي (Date) علشان العد التنازلي
   const base = Date.UTC(y, m - 1, d) - tzo * 3600000;
@@ -71,6 +82,7 @@ async function chooseCity() {
     pick = res[Number(id)];
   }
   wg.city = { name: pick.name, lat: pick.lat, lon: pick.lon, tz: pick.tz || Intl.DateTimeFormat().resolvedOptions().timeZone };
+  wg.cityChosen = true;
   wgSave(); renderWidgets(); toast('المدينة: ' + pick.name);
 }
 const cityBtn = () => el('button', { class: 'wgCity', title: 'تغيير المدينة', onclick: chooseCity }, '📍 ' + wg.city.name);
@@ -146,24 +158,30 @@ function weatherWidget() {
 }
 
 /* ---- أسعار العملات + محوّل ---- */
-const CUR = { USD: ['دولار', '🇺🇸'], EUR: ['يورو', '🇪🇺'], SAR: ['ريال سعودي', '🇸🇦'], AED: ['درهم إماراتي', '🇦🇪'], KWD: ['دينار كويتي', '🇰🇼'], GBP: ['جنيه إسترليني', '🇬🇧'], QAR: ['ريال قطري', '🇶🇦'] };
+const CUR = { USD: ['دولار', '🇺🇸'], EUR: ['يورو', '🇪🇺'], SAR: ['ريال سعودي', '🇸🇦'], AED: ['درهم إماراتي', '🇦🇪'], KWD: ['دينار كويتي', '🇰🇼'], GBP: ['جنيه إسترليني', '🇬🇧'], QAR: ['ريال قطري', '🇶🇦'],
+  EGP: ['جنيه مصري', '🇪🇬'], INR: ['روبية هندية', '🇮🇳'], TRY: ['ليرة تركية', '🇹🇷'], JOD: ['دينار أردني', '🇯🇴'], LYD: ['دينار ليبي', '🇱🇾'], BHD: ['دينار بحريني', '🇧🇭'], OMR: ['ريال عماني', '🇴🇲'] };
 function ratesWidget() {
   const body = el('div', { class: 'wgRates' }, el('div', { class: 'wgLoad' }, 'بنجيب الأسعار...'));
-  const load = () => api.rates().then((r) => {
+  const C = country(), L = C.cur;
+  const load = () => api.rates(L).then((r) => {
     if (body.contains(document.activeElement) && body.childElementCount > 1) return; // بيكتب في المحوّل دلوقتي
     body.innerHTML = '';
-    if (!r || !r.rates || !r.rates.EGP) { body.append(el('div', { class: 'wgLoad' }, 'مفيش اتصال بالنت دلوقتي')); return; }
-    const inEGP = (c) => c === 'USD' ? r.rates.EGP : r.rates.EGP / r.rates[c];
-    for (const c of ['USD', 'EUR', 'SAR', 'AED', 'KWD']) {
-      if (c !== 'USD' && !r.rates[c]) continue;
-      body.append(el('div', { class: 'wgRate' }, el('span', {}, CUR[c][1] + ' ' + CUR[c][0]), el('b', {}, inEGP(c).toFixed(2) + ' ج.م')));
+    const rate = (c) => (c === 'USD' ? 1 : r && r.rates && r.rates[c]);
+    if (!rate(L)) { body.append(el('div', { class: 'wgLoad' }, 'مفيش اتصال بالنت دلوقتي')); return; }
+    // كام من عملة البلد في الوحدة من العملة دي
+    const inEGP = (c) => rate(L) / rate(c);
+    const dig = (v) => (v >= 1000 ? 0 : v >= 10 ? 2 : 3);
+    for (const c of ['USD', ...C.fx].filter((c, i, a) => c !== L && a.indexOf(c) === i && CUR[c]).slice(0, 5)) {
+      if (!rate(c)) continue;
+      const v = inEGP(c);
+      body.append(el('div', { class: 'wgRate' }, el('span', {}, CUR[c][1] + ' ' + CUR[c][0]), el('b', {}, v.toLocaleString('en-US', { maximumFractionDigits: dig(v), minimumFractionDigits: Math.min(2, dig(v)) }) + ' ' + C.sym)));
     }
     const amt = el('input', { type: 'number', min: 0, value: wg.convAmt, dir: 'ltr' });
-    const cur = selectOf(Object.keys(CUR).filter(c => c === 'USD' || r.rates[c]).map(c => [c, CUR[c][0]]), wg.convCur, () => calc());
+    const cur = selectOf(Object.keys(CUR).filter(c => c !== L && rate(c)).map(c => [c, CUR[c][0]]), wg.convCur === L ? 'USD' : wg.convCur, () => calc());
     const res = el('b', { class: 'wgConvRes' });
     const calc = () => {
       wg.convAmt = Number(amt.value) || 0; wg.convCur = cur.value; wgSave();
-      res.textContent = '= ' + (wg.convAmt * inEGP(cur.value)).toLocaleString('ar-EG', { maximumFractionDigits: 2 }) + ' جنيه';
+      res.textContent = '= ' + (wg.convAmt * inEGP(cur.value)).toLocaleString('ar-EG', { maximumFractionDigits: 2 }) + ' ' + curWord();
     };
     amt.addEventListener('input', calc);
     calc();
@@ -172,7 +190,7 @@ function ratesWidget() {
   });
   load();
   const t = setInterval(() => { if (!body.isConnected) { if (body._seen) clearInterval(t); return; } body._seen = 1; if (!document.hidden) load(); }, 60000);
-  return wgCard('rates', 'أسعار العملات بالجنيه', '💱', body);
+  return wgCard('rates', 'أسعار العملات ب' + C.curAr, '💱', body);
 }
 
 function renderWidgets() {
@@ -206,6 +224,23 @@ function renderWidgets() {
   try { if ($('#ntNewsSide').children.length) renderWidgets(); } catch { /* ignore */ }
 })();
 
+/* اختيار البلد (تلقائي من الساعة أو يدوي) */
+function countrySelect() {
+  const auto = COUNTRIES[autoCountry()];
+  const opts = [['auto', 'تلقائي (' + auto.flag + ' ' + auto.name + ')'], ...Object.values(COUNTRIES).map(c => [c.code, c.flag + ' ' + c.name])];
+  return selectOf(opts, countryChoice(), (v) => {
+    setCountry(v);
+    toast('الرئيسية اتظبطت على ' + country().flag + ' ' + country().name);
+  });
+}
+window.addEventListener('alalamy-country', () => {
+  cityFromCountry();
+  if (!wg.clocksCustom) delete wg.clocks;
+  wgSave();
+  try { renderSites(); } catch (e) { console.error(e); }
+  try { renderFeed(true); } catch { /* ignore */ }
+});
+
 /* زرار في الإعدادات ← المظهر علشان تظهر/تخفي الأدوات */
 const oldAppearance = settingsSections.appearance;
 settingsSections.appearance = () => {
@@ -214,6 +249,7 @@ settingsSections.appearance = () => {
   const back = el('div', { class: 'btnrow' });
   for (const k of wg.hidden || []) back.append(el('button', { onclick: () => { wg.hidden = wg.hidden.filter(x => x !== k); wgSave(); back.querySelector(`[data-k="${k}"]`)?.remove(); renderWidgets(); }, 'data-k': k }, 'إظهار ' + (hiddenNames[k] || k)));
   cards.push(card(settingRow('أدوات الصفحة الرئيسية', 'الطقس، مواقيت الصلاة والأذان، أسعار العملات والدهب، الملاحظات والمهام، مؤقّت التركيز، آية اليوم والسبحة، التقويم، الماتشات وساعات البلاد.', toggle('showWidgets', () => renderWidgets())),
+    settingRow('بلدك', 'الأخبار والعملة والدهب والدوري ومواعيد الصلاة في الرئيسية بتتظبط على بلدك', countrySelect()),
     settingRow('المدينة', 'للطقس ومواقيت الصلاة', el('button', { onclick: chooseCity }, '📍 ' + wg.city.name)),
     settingRow('صوت الأذان', 'مع كل صلاة: إسلام صبحي وعبد الرحمن مسعود والعفاسي بالتناوب، أو صوت من جهازك', typeof adhanMenu === 'function' ? el('button', { onclick: adhanMenu }, '🔔 الإعدادات') : null), back));
   return cards;

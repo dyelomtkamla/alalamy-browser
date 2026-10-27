@@ -5,7 +5,8 @@ const WEATHER = process.env.ALALAMY_WEATHER_URL || 'https://api.open-meteo.com/v
 const GEO = process.env.ALALAMY_GEO_URL || 'https://geocoding-api.open-meteo.com/v1/search';
 // أسعار لحظية: Coinbase (بتتحدث كل دقيقة) وبعدها ياهو فاينانس للجنيه، وopen.er-api (مرة في اليوم) آخر حل
 const RATES = (process.env.ALALAMY_RATES_URL || 'https://api.coinbase.com/v2/exchange-rates?currency=USD,https://open.er-api.com/v6/latest/USD').split(',');
-const EGP_LIVE = process.env.ALALAMY_EGP_URL || 'https://query1.finance.yahoo.com/v8/finance/chart/EGP=X?interval=1m&range=1d';
+// سعر عملة البلد اللحظي من ياهو (EGP=X، SAR=X ...)
+const LOCAL_LIVE = process.env.ALALAMY_EGP_URL || 'https://query1.finance.yahoo.com/v8/finance/chart/{CUR}=X?interval=1m&range=1d';
 const LIVE_MS = 2 * 60000;
 const GOLD = (process.env.ALALAMY_GOLD_URL || 'https://xaus.com/api/v1/spot?compact=1,https://api.gold-api.com/price/XAU').split(',');
 const ESPN = process.env.ALALAMY_ESPN_URL || 'https://site.api.espn.com/apis/site/v2/sports/soccer';
@@ -17,7 +18,21 @@ const LEAGUE_RX = [[/^egypt\|premier league/i, 'الدوري المصري'], [/c
   [/^(world|international)\|(fifa )?world cup$/i, 'كأس العالم'], [/uefa champions league|^europe\|champions league|^champions league/i, 'دوري الأبطال'], [/europa league/i, 'الدوري الأوروبي'],
   [/^saudi|saudi pro|roshn/i, 'الدوري السعودي'], [/^england\|premier league$/i, 'الدوري الإنجليزي'], [/^spain\|(laliga|la liga|primera)/i, 'الدوري الإسباني'],
   [/^italy\|serie a/i, 'الدوري الإيطالي'], [/^germany\|bundesliga$/i, 'الدوري الألماني'], [/^france\|ligue 1/i, 'الدوري الفرنسي']];
-const leagueOf = (country, name) => { const k = `${country || ''}|${name || ''}`; const m = LEAGUE_RX.find(([rx]) => rx.test(k)); return m ? m[1] : null; };
+const leagueOf = (country, name, local) => {
+  const k = `${country || ''}|${name || ''}`;
+  if (local && local.rx.test(k)) return local.name;
+  const m = LEAGUE_RX.find(([rx]) => rx.test(k)); return m ? m[1] : null;
+};
+// دوري بلد المستخدم من بيانات البلاد (src/ui/countries.js)
+let COUNTRY_DATA = null;
+function localLeague(cc, fs, path) {
+  try {
+    if (!COUNTRY_DATA) COUNTRY_DATA = JSON.parse(fs.readFileSync(path.join(__dirname, 'ui', 'countries.js'), 'utf8').match(/const COUNTRIES = (\{[\s\S]*\});/)[1]);
+    const c = COUNTRY_DATA[cc];
+    if (!c || !c.league) return null;
+    return { name: c.league[0], rx: new RegExp(c.league[1], 'i'), espn: c.espn || null };
+  } catch { return null; }
+}
 const QURAN = process.env.ALALAMY_QURAN_URL || 'https://api.alquran.cloud/v1/ayah';
 // الدوريات اللي بتظهر في «ماتشات النهارده»
 const LEAGUES = [['egy.1', 'الدوري المصري'], ['uefa.champions', 'دوري الأبطال'], ['ksa.1', 'الدوري السعودي'], ['eng.1', 'الدوري الإنجليزي'],
@@ -64,10 +79,29 @@ function setup({ ipcMain, net, readJSON, writeJSON, app, path, fs, downloader })
 
   // طلب واحد بس في نفس الوقت (كذا أداة بتطلب الأسعار مع بعض)
   let ratesBusy = null;
-  ipcMain.handle('widgets:rates', () => ratesBusy || (ratesBusy = fetchRates().finally(() => { ratesBusy = null; })));
+  const liveLocal = {}; // CUR -> { time, v, at }
+  ipcMain.handle('widgets:rates', async (_e, cur) => {
+    const base = await (ratesBusy || (ratesBusy = fetchRates().finally(() => { ratesBusy = null; })));
+    cur = /^[A-Z]{3}$/.test(String(cur || '')) ? String(cur) : 'EGP';
+    if (!base || cur === 'USD') return base;
+    // عملة البلد بسعر السوق اللحظي من ياهو لو متاح
+    let l = liveLocal[cur];
+    if (!l || Date.now() - l.time > LIVE_MS) {
+      try {
+        const y = await getJSON(LOCAL_LIVE.replace('{CUR}', cur));
+        const m = y && y.chart && y.chart.result && y.chart.result[0] && y.chart.result[0].meta;
+        const v = num(m && m.regularMarketPrice, 0.0001, 10000000);
+        l = liveLocal[cur] = { time: Date.now(), v, at: m && m.regularMarketTime ? m.regularMarketTime * 1000 : Date.now() };
+      } catch { l = liveLocal[cur] = { time: Date.now() - LIVE_MS + 30000, v: l && l.v, at: l && l.at }; }
+    }
+    // سعر ياهو لو بعيد جداً عن المصدر التاني يبقى غلط (عملة مش مدعومة مثلاً)
+    const ref = base.rates && base.rates[cur];
+    if (!l.v || (ref && Math.abs(l.v / ref - 1) > 0.25)) return base;
+    return Object.assign({}, base, { live: true, updated: l.at, rates: Object.assign({}, base.rates, { [cur]: l.v }) });
+  });
   async function fetchRates() {
     if (cache.rates && Date.now() - cache.rates.time < LIVE_MS) return cache.rates.data;
-    const pick = ['EGP', 'SAR', 'AED', 'KWD', 'EUR', 'GBP', 'QAR', 'JOD', 'TRY'];
+    const pick = ['EGP', 'SAR', 'AED', 'KWD', 'EUR', 'GBP', 'QAR', 'JOD', 'TRY', 'BHD', 'OMR', 'IQD', 'LBP', 'SYP', 'ILS', 'MAD', 'DZD', 'TND', 'LYD', 'SDG', 'YER', 'INR'];
     for (const u of RATES) {
       try {
         const j = await getJSON(u.trim());
@@ -77,13 +111,6 @@ function setup({ ipcMain, net, readJSON, writeJSON, app, path, fs, downloader })
         const data = { base: 'USD', live, updated: live ? Date.now() : (j.time_last_update_unix ? j.time_last_update_unix * 1000 : Date.now()), rates: {} };
         for (const k of pick) { const v = Number(src[k]); if (Number.isFinite(v) && v > 0) data.rates[k] = v; }
         if (!data.rates.EGP) continue;
-        // الجنيه بالذات: سعر السوق اللحظي من ياهو لو متاح
-        try {
-          const y = await getJSON(EGP_LIVE);
-          const m = y && y.chart && y.chart.result && y.chart.result[0] && y.chart.result[0].meta;
-          const v = num(m && m.regularMarketPrice, 5, 1000);
-          if (v) { data.rates.EGP = v; data.live = true; data.updated = (m.regularMarketTime ? m.regularMarketTime * 1000 : Date.now()); }
-        } catch { /* نكمل بسعر المصدر الأول */ }
         cache.rates = { time: Date.now(), data };
         persist();
         return data;
@@ -124,8 +151,9 @@ function setup({ ipcMain, net, readJSON, writeJSON, app, path, fs, downloader })
 
   /* ---- ماتشات النهارده (ESPN) ---- */
   let matchCache = null;
-  async function espnMatches(ymd) {
-    const lists = await Promise.all(LEAGUES.map(async ([id, name]) => {
+  async function espnMatches(ymd, local) {
+    const leagues = local && local.espn && !LEAGUES.some(([id]) => id === local.espn) ? [[local.espn, local.name], ...LEAGUES] : LEAGUES;
+    const lists = await Promise.all(leagues.map(async ([id, name]) => {
       try {
         const j = await getJSON(`${ESPN}/${id}/scoreboard?dates=${ymd}`);
         return ((j && j.events) || []).map((ev) => {
@@ -133,19 +161,19 @@ function setup({ ipcMain, net, readJSON, writeJSON, app, path, fs, downloader })
           const side = (k) => (c.competitors || []).find(x => x.homeAway === k) || {};
           const h = side('home'), a = side('away'), st = (ev.status || c.status || {});
           const team = (x) => ({ name: (x.team && (x.team.shortDisplayName || x.team.displayName)) || '', logo: (x.team && x.team.logo) || '', score: x.score != null ? String(x.score) : '' });
-          return { id: String(ev.id || ''), league: name, date: ev.date, state: (st.type && st.type.state) || 'pre', clock: st.displayClock || '', detail: (st.type && st.type.shortDetail) || '', home: team(h), away: team(a) };
+          return { id: String(ev.id || ''), league: local && local.espn === id ? local.name : name, date: ev.date, state: (st.type && st.type.state) || 'pre', clock: st.displayClock || '', detail: (st.type && st.type.shortDetail) || '', home: team(h), away: team(a) };
         });
       } catch { return null; }
     }));
     return lists.every(l => l === null) ? null : lists.flat().filter(Boolean);
   }
-  async function sofaMatches(ymd) {
+  async function sofaMatches(ymd, local) {
     const j = await getJSON(`${SOFA}/${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6)}`);
     if (!j || !Array.isArray(j.events)) throw new Error('bad');
     const out = [];
     for (const ev of j.events) {
       const t = ev.tournament || {}, ut = t.uniqueTournament || {};
-      const league = leagueOf(t.category && t.category.name, ut.name || t.name);
+      const league = leagueOf(t.category && t.category.name, ut.name || t.name, local);
       if (!league) continue;
       const type = (ev.status && ev.status.type) || '';
       const state = type === 'inprogress' ? 'in' : (type === 'finished' || type === 'canceled' || type === 'postponed') ? (type === 'finished' ? 'post' : 'pre') : 'pre';
@@ -158,12 +186,12 @@ function setup({ ipcMain, net, readJSON, writeJSON, app, path, fs, downloader })
     }
     return out;
   }
-  async function livescoreMatches(ymd) {
+  async function livescoreMatches(ymd, local) {
     const j = await getJSON(`${LIVESCORE}/${ymd}/0?locale=en&MD=1`);
     if (!j || !Array.isArray(j.Stages)) throw new Error('bad');
     const out = [];
     for (const st of j.Stages) {
-      const league = leagueOf(st.Cnm, st.CompN || st.Snm);
+      const league = leagueOf(st.Cnm, st.CompN || st.Snm, local);
       if (!league) continue;
       for (const ev of st.Events || []) {
         const eps = String(ev.Eps || '');
@@ -176,18 +204,29 @@ function setup({ ipcMain, net, readJSON, writeJSON, app, path, fs, downloader })
     }
     return out;
   }
-  ipcMain.handle('widgets:matches', async (_e, ymd) => {
+  ipcMain.handle('widgets:matches', async (_e, ymd, cc) => {
     ymd = /^\d{8}$/.test(String(ymd)) ? String(ymd) : new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    if (matchCache && matchCache.ymd === ymd && Date.now() - matchCache.time < 2 * 60000) return matchCache.data;
-    let list = await espnMatches(ymd);
-    for (const alt of [sofaMatches, livescoreMatches]) {
+    cc = /^[A-Z]{2}$/.test(String(cc || '')) ? String(cc) : 'EG';
+    if (matchCache && matchCache.ymd === ymd && matchCache.cc === cc && Date.now() - matchCache.time < 2 * 60000) return matchCache.data;
+    const local = localLeague(cc, fs, path);
+    let list = await espnMatches(ymd, local);
+    let alts = [sofaMatches, livescoreMatches];
+    for (const alt of alts) {
       if (list && list.length) break;
-      try { const l = await alt(ymd); if (l && (l.length || !list)) list = l; } catch { /* المصدر اللي بعده */ }
+      try { const l = await alt(ymd, local); if (l && (l.length || !list)) list = l; } catch { /* المصدر اللي بعده */ }
     }
-    if (!list) return matchCache && matchCache.ymd === ymd ? Object.assign([], matchCache.data, { stale: true }) : null;
+    // دوري البلد مش في ESPN (الكويت، قطر...) أو مالوش ماتشات هناك: نكمّله من SofaScore/LiveScore
+    if (list && local && !list.some(m => m.league === local.name)) {
+      for (const alt of alts) {
+        try { const l = await alt(ymd, local); if (l) { list = list.concat(l.filter(m => m.league === local.name)); break; } } catch { /* اللي بعده */ }
+      }
+    }
+    if (!list) return matchCache && matchCache.ymd === ymd && matchCache.cc === cc ? Object.assign([], matchCache.data, { stale: true }) : null;
     const order = { in: 0, pre: 1, post: 2 };
-    const data = list.sort((x, y) => (order[x.state] - order[y.state]) || (new Date(x.date) - new Date(y.date)));
-    matchCache = { ymd, time: Date.now(), data };
+    // ماتشات دوري البلد الأول
+    const mine = (m) => (local && m.league === local.name ? 0 : 1);
+    const data = list.sort((x, y) => (order[x.state] - order[y.state]) || (mine(x) - mine(y)) || (new Date(x.date) - new Date(y.date)));
+    matchCache = { ymd, cc, time: Date.now(), data };
     return data;
   });
 

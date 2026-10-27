@@ -111,7 +111,7 @@ function focusWidget() {
 /* ---------- أسعار الدهب بالجنيه ---------- */
 function goldWidget() {
   const body = el('div', { class: 'wgRates' }, el('div', { class: 'wgLoad' }, 'بنجيب أسعار الدهب...'));
-  Promise.all([api.gold(), api.rates()]).then(([g, r]) => {
+  const load = () => Promise.all([api.gold(), api.rates()]).then(([g, r]) => {
     body.innerHTML = '';
     const egp = r && r.rates && r.rates.EGP;
     if (!g || !g.usdGram || !egp) { body.append(el('div', { class: 'wgLoad' }, 'مفيش اتصال بالنت دلوقتي')); return; }
@@ -124,8 +124,11 @@ function goldWidget() {
         d ? el('small', { class: d > 0 ? 'up' : 'dn' }, (d > 0 ? ' ▲ ' : ' ▼ ') + Math.abs(d).toLocaleString('ar-EG')) : null));
     };
     body.append(row('عيار ٢١', 21 / 24), row('عيار ٢٤', 1), row('عيار ١٨', 18 / 24), row('الجنيه الدهب', 21 / 24 * 8),
-      el('small', { class: 'wgUpd' }, 'سعر عالمي تقريبي من غير مصنعية' + (g.stale ? ' (من غير نت)' : '')));
+      el('small', { class: 'wgUpd' }, 'سعر لحظي بسعر الدولار دلوقتي، من غير مصنعية · ' + new Date(g.updated || Date.now()).toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-digit' }) + (g.stale || r.stale ? ' (من غير نت)' : '')));
   });
+  // بيتحدث لوحده كل دقيقة طول ما الصفحة مفتوحة
+  load();
+  const t = setInterval(() => { if (alive(body, t) && !document.hidden) load(); }, 60000);
   return wgCard('gold', 'أسعار الدهب النهارده', '🪙', body, el('div', { class: 'wgFoot' }, el('span'),
     el('button', { class: 'wgCity', onclick: () => navigate('https://www.google.com/search?q=' + encodeURIComponent('سعر الدهب النهارده في مصر')) }, 'التفاصيل ↗')));
 }

@@ -3,7 +3,10 @@
    كلها مجانية ومن غير مفتاح. مواقيت الصلاة بتتحسب على الجهاز نفسه (src/ui/widgets.js) فمش محتاجة نت. */
 const WEATHER = process.env.ALALAMY_WEATHER_URL || 'https://api.open-meteo.com/v1/forecast';
 const GEO = process.env.ALALAMY_GEO_URL || 'https://geocoding-api.open-meteo.com/v1/search';
-const RATES = process.env.ALALAMY_RATES_URL || 'https://open.er-api.com/v6/latest/USD';
+// أسعار لحظية: Coinbase (بتتحدث كل دقيقة) وبعدها ياهو فاينانس للجنيه، وopen.er-api (مرة في اليوم) آخر حل
+const RATES = (process.env.ALALAMY_RATES_URL || 'https://api.coinbase.com/v2/exchange-rates?currency=USD,https://open.er-api.com/v6/latest/USD').split(',');
+const EGP_LIVE = process.env.ALALAMY_EGP_URL || 'https://query1.finance.yahoo.com/v8/finance/chart/EGP=X?interval=1m&range=1d';
+const LIVE_MS = 2 * 60000;
 const GOLD = (process.env.ALALAMY_GOLD_URL || 'https://xaus.com/api/v1/spot?compact=1,https://api.gold-api.com/price/XAU').split(',');
 const ESPN = process.env.ALALAMY_ESPN_URL || 'https://site.api.espn.com/apis/site/v2/sports/soccer';
 const QURAN = process.env.ALALAMY_QURAN_URL || 'https://api.alquran.cloud/v1/ayah';
@@ -50,21 +53,35 @@ function setup({ ipcMain, net, readJSON, writeJSON, app, path, fs, downloader })
     }
   });
 
-  ipcMain.handle('widgets:rates', async () => {
-    if (cache.rates && Date.now() - cache.rates.time < 3 * 3600000) return cache.rates.data;
-    try {
-      const j = await getJSON(RATES);
-      if (!j || !j.rates) throw new Error('bad');
-      const pick = ['EGP', 'SAR', 'AED', 'KWD', 'EUR', 'GBP', 'QAR', 'JOD', 'TRY'];
-      const data = { base: 'USD', updated: j.time_last_update_unix ? j.time_last_update_unix * 1000 : Date.now(), rates: {} };
-      for (const k of pick) if (typeof j.rates[k] === 'number') data.rates[k] = j.rates[k];
-      cache.rates = { time: Date.now(), data };
-      persist();
-      return data;
-    } catch {
-      return cache.rates ? Object.assign({ stale: true }, cache.rates.data) : null;
+  // طلب واحد بس في نفس الوقت (كذا أداة بتطلب الأسعار مع بعض)
+  let ratesBusy = null;
+  ipcMain.handle('widgets:rates', () => ratesBusy || (ratesBusy = fetchRates().finally(() => { ratesBusy = null; })));
+  async function fetchRates() {
+    if (cache.rates && Date.now() - cache.rates.time < LIVE_MS) return cache.rates.data;
+    const pick = ['EGP', 'SAR', 'AED', 'KWD', 'EUR', 'GBP', 'QAR', 'JOD', 'TRY'];
+    for (const u of RATES) {
+      try {
+        const j = await getJSON(u.trim());
+        const src = (j && j.data && j.data.rates) || (j && j.rates);
+        if (!src) continue;
+        const live = !!(j.data && j.data.rates);
+        const data = { base: 'USD', live, updated: live ? Date.now() : (j.time_last_update_unix ? j.time_last_update_unix * 1000 : Date.now()), rates: {} };
+        for (const k of pick) { const v = Number(src[k]); if (Number.isFinite(v) && v > 0) data.rates[k] = v; }
+        if (!data.rates.EGP) continue;
+        // الجنيه بالذات: سعر السوق اللحظي من ياهو لو متاح
+        try {
+          const y = await getJSON(EGP_LIVE);
+          const m = y && y.chart && y.chart.result && y.chart.result[0] && y.chart.result[0].meta;
+          const v = num(m && m.regularMarketPrice, 5, 1000);
+          if (v) { data.rates.EGP = v; data.live = true; data.updated = (m.regularMarketTime ? m.regularMarketTime * 1000 : Date.now()); }
+        } catch { /* نكمل بسعر المصدر الأول */ }
+        cache.rates = { time: Date.now(), data };
+        persist();
+        return data;
+      } catch { /* المصدر اللي بعده */ }
     }
-  });
+    return cache.rates ? Object.assign({ stale: true }, cache.rates.data) : null;
+  }
 
   ipcMain.handle('widgets:geocode', async (_e, q) => {
     q = String(q || '').trim().slice(0, 80);
@@ -77,7 +94,7 @@ function setup({ ipcMain, net, readJSON, writeJSON, app, path, fs, downloader })
 
   /* ---- سعر الدهب العالمي بالدولار للجرام (الواجهة بتحوله للجنيه بسعر الدولار) ---- */
   ipcMain.handle('widgets:gold', async () => {
-    if (cache.gold && Date.now() - cache.gold.time < 20 * 60000) return cache.gold.data;
+    if (cache.gold && Date.now() - cache.gold.time < LIVE_MS) return cache.gold.data;
     for (const u of GOLD) {
       try {
         const j = await getJSON(u.trim());

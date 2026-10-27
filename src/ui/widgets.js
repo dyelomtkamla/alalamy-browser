@@ -149,7 +149,8 @@ function weatherWidget() {
 const CUR = { USD: ['دولار', '🇺🇸'], EUR: ['يورو', '🇪🇺'], SAR: ['ريال سعودي', '🇸🇦'], AED: ['درهم إماراتي', '🇦🇪'], KWD: ['دينار كويتي', '🇰🇼'], GBP: ['جنيه إسترليني', '🇬🇧'], QAR: ['ريال قطري', '🇶🇦'] };
 function ratesWidget() {
   const body = el('div', { class: 'wgRates' }, el('div', { class: 'wgLoad' }, 'بنجيب الأسعار...'));
-  api.rates().then((r) => {
+  const load = () => api.rates().then((r) => {
+    if (body.contains(document.activeElement) && body.childElementCount > 1) return; // بيكتب في المحوّل دلوقتي
     body.innerHTML = '';
     if (!r || !r.rates || !r.rates.EGP) { body.append(el('div', { class: 'wgLoad' }, 'مفيش اتصال بالنت دلوقتي')); return; }
     const inEGP = (c) => c === 'USD' ? r.rates.EGP : r.rates.EGP / r.rates[c];
@@ -167,8 +168,10 @@ function ratesWidget() {
     amt.addEventListener('input', calc);
     calc();
     body.append(el('div', { class: 'wgConv' }, amt, cur), res,
-      el('small', { class: 'wgUpd' }, 'آخر تحديث: ' + new Date(r.updated).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' }) + (r.stale ? ' (من غير نت)' : '')));
+      el('small', { class: 'wgUpd' }, (r.live ? 'سعر لحظي · ' : 'آخر تحديث: ') + new Date(r.updated).toLocaleString('ar-EG', r.live ? { hour: 'numeric', minute: '2-digit' } : { day: 'numeric', month: 'short' }) + (r.stale ? ' (من غير نت)' : '')));
   });
+  load();
+  const t = setInterval(() => { if (!body.isConnected) { if (body._seen) clearInterval(t); return; } body._seen = 1; if (!document.hidden) load(); }, 60000);
   return wgCard('rates', 'أسعار العملات بالجنيه', '💱', body);
 }
 

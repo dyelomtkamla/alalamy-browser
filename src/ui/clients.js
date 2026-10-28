@@ -52,14 +52,14 @@ function takeClientTabs(id) {
   return tabs;
 }
 
-// كل عميل في نافذة لوحده: الاختيار بيفتح نافذته (أو يروح لها لو مفتوحة)،
-// و«حسابي الشخصي» بيرجعك للنافذة الرئيسية. تبويباتك في النافذة الرئيسية بتفضل زي ما هي.
+// جلستين بس: النافذة الرئيسية (حسابك) ونافذة عميل واحدة. اختيار عميل تاني بيبدّل نافذة العميل له
+// (وتبويبات العميل اللي قبله بتتحفظ وترجع لما تختاره تاني)، و«حسابي الشخصي» بيرجعك للنافذة الرئيسية.
 function switchClient(id) {
   hidePopups();
   id = clientById(id) ? id : null;
   if (id !== (CLIENT_WIN || null)) {
     const c = clientById(id);
-    if (c) { api.openClientWindow(id, { tabs: takeClientTabs(id) }); toast(`اتفتحت نافذة العميل «${c.name}»`); }
+    if (c) { api.openClientWindow(id, { tabs: takeClientTabs(id) }); toast(`نافذة العملاء اتبدلت للعميل «${c.name}»`); }
     else api.focusMainWindow();
     return;
   }
@@ -236,7 +236,7 @@ function showClientMenu(fromProfile = false) {
   api.clientWindows().then((ids) => {
     for (const x of m.querySelectorAll('.ccount[data-cid]')) {
       const cid = x.getAttribute('data-cid');
-      if (cid && ids.includes(cid) && cid !== CLIENT_WIN) x.textContent = 'نافذة مفتوحة';
+      if (cid && ids.includes(cid) && cid !== CLIENT_WIN) x.textContent = 'مفتوح دلوقتي';
     }
   }).catch(() => {});
   const r = (fromProfile ? $('#profileBtn') : $('#clientChip')).getBoundingClientRect();
@@ -300,7 +300,7 @@ function openClientDialog(edit) {
     const c = clientById(id);
     if (!c) return toast('تعذر إضافة العميل');
     api.openClientWindow(c.id, {});
-    toast(`اتعمل العميل «${c.name}» في نافذة لوحده. افتح أي منصة من شريط المنصات وسجّل دخولها مرة واحدة`);
+    toast(`اتعمل العميل «${c.name}» واتفتح في نافذة العملاء. افتح أي منصة من شريط المنصات وسجّل دخولها مرة واحدة`);
   };
   const box = el('div', { class: 'cdialog', role: 'dialog' },
     el('h3', {}, edit ? 'تعديل العميل' : 'عميل جديد'),
@@ -396,8 +396,18 @@ window.__clientsTest = async () => {
   switchClient(id); // مرة تانية: نفس النافذة مش نافذة جديدة
   await wait(300);
   const sameWindow = (await api.clientWindows()).filter(x => x === id).length === 1;
+  // عميل تاني: نفس نافذة العميل تتبدل له (جلستين بس، الرئيسية والعميل)
+  const id2 = 'c_smoketest2';
+  state.clients = await api.saveClients([...state.clients, { id: id2, name: 'محمد', color: '#188038', sites: ['x'] }]);
+  switchClient(id2);
+  for (let i = 0; i < 50 && !wins.includes(id2); i++) { await wait(100); wins = await api.clientWindows(); }
+  const swapped = wins.length === 1 && wins[0] === id2;
+  switchClient(id);
+  for (let i = 0; i < 50 && !wins.includes(id); i++) { await wait(100); wins = await api.clientWindows(); }
+  const swappedBack = wins.length === 1 && wins[0] === id;
+  await removeClient(clientById(id2), true);
   await removeClient(clientById(id), true);
   await wait(300);
-  const removed = !clientById(id) && !(await api.clientWindows()).includes(id) && state.client === null;
-  return { saved, clientPartition, ownWindow, movedOut, mainKept, chipShows, sameWindow, removed };
+  const removed = !clientById(id) && !(await api.clientWindows()).length && state.client === null;
+  return { saved, clientPartition, ownWindow, movedOut, mainKept, chipShows, sameWindow, swapped, swappedBack, removed };
 };

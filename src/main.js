@@ -382,8 +382,8 @@ function sendUI(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 const isIncognitoWin = (w) => !!(w && w.__incognito);
-/* نافذة العميل: كل عميل بيتفتح في نافذة لوحده، وكل منصة من منصاته في تبويب.
-   النافذة الرئيسية بتفضل بتبويباتك زي ما هي. */
+/* نافذة العميل: جلستين بس، النافذة الرئيسية (حسابك) ونافذة عميل واحدة.
+   التبديل لعميل تاني بيبدّل نفس نافذة العميل له، وتبويبات العميل اللي قبله بتتحفظ وترجع لما تختاره تاني. */
 const CLIENT_ID_RE = /^c_[a-z0-9]{4,20}$/;
 const isClientWin = (w) => !!(w && w.__client);
 // نافذة محفوظة كل تبويباتها لعميل واحد = نافذة العميل ده
@@ -393,16 +393,54 @@ function clientOfRestore(d) {
 }
 function clientName(id) { const c = (store.clients || []).find(x => x.id === id); return c ? c.name : ''; }
 function clientWindowOf(id) { return [...windows].find(w => !w.isDestroyed() && w.__client === id) || null; }
+// آخر تبويبات كل عميل (لما نافذة العميل تتبدل لعميل تاني)
+let clientTabsMem = null;
+function clientMem() {
+  if (!clientTabsMem) { clientTabsMem = readJSON('client-tabs.json', {}); if (!clientTabsMem || typeof clientTabsMem !== 'object') clientTabsMem = {}; }
+  return clientTabsMem;
+}
+function rememberClientTabs(id, d) {
+  if (!CLIENT_ID_RE.test(id || '')) return;
+  const tabs = d && Array.isArray(d.tabs) ? d.tabs.filter(t => t && /^https?:/i.test(t.url || '')).slice(0, 200).map(cleanTab).map(t => ({ ...t, clientId: id })) : [];
+  const mem = clientMem();
+  if (tabs.length) mem[id] = { tabs, active: Math.min(Math.max(0, Number(d.active) || 0), tabs.length - 1) };
+  else delete mem[id];
+  try { writeJSON('client-tabs.json', mem); } catch { /* ignore */ }
+}
+function takeClientMem(id) {
+  const m = clientMem()[id];
+  return m && Array.isArray(m.tabs) && m.tabs.length ? m : null;
+}
+function showWin(w) { if (w.isMinimized()) w.restore(); w.show(); w.focus(); }
+// نافذة العميل الوحيدة تتبدل لعميل تاني: تبويبات العميل الحالي تتحفظ، وتتفتح تبويبات الجديد
+function swapClientWindow(w, id, { only = null, tabs = null } = {}) {
+  const prev = w.__client;
+  const snap = windowSnapshot(w);
+  if (prev && snap) rememberClientTabs(prev, snap);
+  live.delete(w.id);
+  const mem = takeClientMem(id);
+  const all = [...(mem ? mem.tabs : []), ...(tabs || [])];
+  w.__client = id;
+  w.__restore = all.length ? { tabs: all, active: mem ? mem.active : 0, client: id, bounds: snap && snap.bounds, maximized: snap && snap.maximized } : null;
+  w.__openSites = { only };
+  w.setTitle(`${clientName(id)} - متصفح العالمي`);
+  w.loadFile(path.join(__dirname, 'ui', 'index.html'), { query: { client: id } });
+  showWin(w);
+  return w;
+}
 function openClientWindow(id, { only = null, tabs = null } = {}) {
   if (!CLIENT_ID_RE.test(id || '') || !(store.clients || []).some(c => c.id === id)) return null;
   const existing = clientWindowOf(id);
   if (existing) {
-    if (existing.isMinimized()) existing.restore();
-    existing.show(); existing.focus();
+    showWin(existing);
     existing.webContents.send('client:open-sites', { only, tabs });
     return existing;
   }
-  const restore = tabs && tabs.length ? { tabs, active: 0, client: id } : null;
+  const other = [...windows].find(w => !w.isDestroyed() && w.__client);
+  if (other) return swapClientWindow(other, id, { only, tabs });
+  const mem = takeClientMem(id);
+  const all = [...(mem ? mem.tabs : []), ...(tabs || [])];
+  const restore = all.length ? { tabs: all, active: mem ? mem.active : 0, client: id } : null;
   return createWindow({ clientId: id, restore, openSites: { only } });
 }
 // النافذة الرئيسية (حسابك الشخصي): مش متخفية ومش نافذة عميل
@@ -437,6 +475,13 @@ function onScreen(b) {
 function createWindow({ incognito = false, url = null, restore = null, clientId = null, openSites = null } = {}) {
   if (!incognito && !clientId) clientId = clientOfRestore(restore);
   if (clientId && !(store.clients || []).some(c => c.id === clientId)) clientId = null;
+  // نافذة عميل واحدة بس: لو فيه واحدة مفتوحة، تبويبات العميل ده تتحفظ لحد ما تختاره
+  if (clientId && [...windows].some(x => !x.isDestroyed() && x.__client)) {
+    if (restore && restore.tabs && restore.tabs.length && !takeClientMem(clientId)) rememberClientTabs(clientId, restore);
+    const cw = clientWindowOf(clientId);
+    if (cw) { showWin(cw); return cw; }
+    return [...windows].find(x => !x.isDestroyed() && x.__client);
+  }
   const saved = readJSON('window.json', { width: 1300, height: 850 });
   const bounds = { width: saved.width || 1300, height: saved.height || 850 };
   if (restore && restore.bounds && restore.bounds.width > 300 && onScreen(restore.bounds)) Object.assign(bounds, restore.bounds);
@@ -535,6 +580,8 @@ function setupWindow(win, incognito) {
     win.on('session-end', () => { quitting = true; persistSession(true, true); });
     win.on('close', () => {
       const snap = windowSnapshot(win);
+      // نافذة العميل اتقفلت: تبويباته ترجع المرة الجاية اللي تختاره فيها
+      if (win.__client && snap) rememberClientTabs(win.__client, snap);
       const others = [...windows].filter(x => x !== win && !x.__incognito);
       if (!quitting && others.length) {
         // نافذة اتقفلت والباقي مفتوح: تتشال من الجلسة وتتحط في «المغلقة مؤخراً»
@@ -1251,6 +1298,7 @@ ipcMain.handle('clients:remove', async (_e, id) => {
   // نافذة العميل تتقفل ومترجعش في «المغلقة مؤخراً»
   const cw = clientWindowOf(c.id);
   if (cw) { live.delete(cw.id); cw.destroy(); persistSession(true); }
+  if (clientMem()[c.id]) { delete clientMem()[c.id]; try { writeJSON('client-tabs.json', clientMem()); } catch { /* ignore */ } }
   try { const ses = session.fromPartition(c.partition); await ses.clearStorageData(); await ses.clearCache(); } catch { /* ignore */ }
   store.passwords = store.passwords.filter(p => p.partition !== c.partition);
   writeJSON('passwords.json', store.passwords);

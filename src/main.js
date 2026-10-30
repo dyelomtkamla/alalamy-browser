@@ -637,7 +637,14 @@ function setupGuest(guest) {
   // هوية كروم العادية لسناب شات (لازم تتغير قبل ما الصفحة تتحمل علشان navigator.userAgent كمان)
   const fixUA = (url) => { const want = uaFor(url); if (guest.getUserAgent() !== want) { guest.setUserAgent(want); return true; } return false; };
   guest.on('will-navigate', (_e, url) => fixUA(url));
-  guest.on('will-redirect', (_e, url, _inPlace, isMainFrame) => { if (isMainFrame) fixUA(url); });
+  // تحويل لسناب شات (زي روابط جيميل اللي بتعدي على google.com/url): تغيير الهوية في نص التحويل
+  // كان بيعلّق التبويب على «جاري التحميل» للأبد، فبنوقف التحويل ونفتح الرابط من جديد بالهوية الصح
+  guest.on('will-redirect', (e, url, _inPlace, isMainFrame) => {
+    if (!isMainFrame || guest.getUserAgent() === uaFor(url)) return;
+    e.preventDefault();
+    fixUA(url);
+    setImmediate(() => { if (!guest.isDestroyed()) guest.loadURL(url); });
+  });
   guest.on('did-start-navigation', (_e, url, _inPlace, isMainFrame) => { if (isMainFrame) fixUA(url); });
   guest.on('did-navigate', (_e, url) => {
     if (!CHROME_ONLY_HOSTS.test(hostOf(url))) return;

@@ -78,6 +78,7 @@ function siteAllowed(pageUrl) {
 /** شغال على الصفحة دي ولا لأ (الإعداد عام + الموقع مش في قايمة المسموح). */
 // صفحات تسجيل الدخول بتاعة جوجل: مانع الإعلانات لو منع أي سكربت فيها (زي فحص الأمان) جوجل بترفض الدخول
 const LOGIN_PAGE = /^https:\/\/(accounts\.google\.[a-z.]+|accounts\.youtube\.com|myaccount\.google\.com|gds\.google\.com)\//;
+const YT_PAGE = /^https:\/\/([a-z0-9-]+\.)*(youtube\.com|youtube-nocookie\.com)\//i;
 function activeFor(pageUrl) {
   if (LOGIN_PAGE.test(pageUrl || '')) return false;
   return !!engine && settings().adblock !== false && /^https?:/.test(pageUrl || '') && !siteAllowed(pageUrl);
@@ -98,6 +99,10 @@ function onBeforeRequest(details, cb) {
   let result = {};
   engine.onBeforeRequest(details, (r) => { result = r; });
   if (!result.cancel && !result.redirectURL) return false;
+  // uBlock بيرد على طلبات زي ad_status.js و pagead/id بملف بديل فاضي، وإحنا ماينفعش نحوّل لـ data: فكنا بنمنعها.
+  // يوتيوب بقى بيبص على الطلبات دي: لو فشلت يعرف إن فيه مانع ويقفل الفيديو («تخالف أدوات حظر الإعلانات...»).
+  // فعلى يوتيوب بنسيب الطلبات اللي ليها بديل تعدّي زي ما هي (مش إعلانات، دي فحوصات بس)
+  if (result.redirectURL && YT_PAGE.test(pageUrlOf(details))) return false;
   total++;
   if (details.webContentsId) perTab.set(details.webContentsId, (perTab.get(details.webContentsId) || 0) + 1);
   // التحويل لـ data: بيفشل في كروميوم (ERR_UNSAFE_REDIRECT)، فنمنع الطلب على طول

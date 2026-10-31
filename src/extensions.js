@@ -7,6 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const { ElectronChromeExtensions } = require('electron-chrome-extensions');
 const { installChromeWebStore, uninstallExtension } = require('electron-chrome-web-store');
+const extWebRequest = require('./ext-webrequest');
 
 const WEB_STORE_URL = 'https://chromewebstore.google.com/category/extensions?hl=ar';
 const byPartition = new Map(); // partition -> ElectronChromeExtensions
@@ -175,13 +176,19 @@ function setup(partition) {
     const file = path.join(__dirname, 'sidepanel-preload.js');
     ses.registerPreloadScript({ id: 'alalamy-sp-frame', type: 'frame', filePath: file });
     ses.registerPreloadScript({ id: 'alalamy-sp-sw', type: 'service-worker', filePath: file });
+    // chrome.webRequest البديل (Pixel Helpers / Tag Assistant)
+    const wrFile = path.join(__dirname, 'webrequest-preload.js');
+    ses.registerPreloadScript({ id: 'alalamy-wr-frame', type: 'frame', filePath: wrFile });
+    ses.registerPreloadScript({ id: 'alalamy-wr-sw', type: 'service-worker', filePath: wrFile });
   } catch (err) { console.error('sidepanel preload', err); }
   const spWorkers = new WeakSet();
   ses.serviceWorkers.on('running-status-changed', ({ runningStatus, versionId }) => {
+    if (runningStatus === 'stopped') { extWebRequest.workerStopped(ses, versionId); return; }
     if (runningStatus !== 'starting') return;
     const sw = ses.serviceWorkers.getWorkerFromVersionID(versionId);
     if (!sw || spWorkers.has(sw) || !String(sw.scope || '').startsWith('chrome-extension://')) return;
     spWorkers.add(sw);
+    extWebRequest.attachWorker(ses, sw);
     try { sw.ipc.handle('alalamy-sp', (_e, method, arg) => spHandle(ses, idFromUrl(sw.scope), method, arg, null)); } catch { /* ignore */ }
   });
   const ext = new ElectronChromeExtensions({

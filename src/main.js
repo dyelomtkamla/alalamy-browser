@@ -13,6 +13,7 @@ const updater = require('./updater');
 const adblock = require('./adblock');
 const learn = require('./learn');
 const i18n = require('./i18n');
+const extWebRequest = require('./ext-webrequest');
 i18n.patchElectron({ Menu, dialog });
 
 // ---------- واجهة مستخدم بهوية كروم عادية حتى لا ترفض جوجل/مايكروسوفت تسجيل الدخول ----------
@@ -273,11 +274,14 @@ function setupSession(partition) {
     if (store.settings.doNotTrack) { h['DNT'] = '1'; h['Sec-GPC'] = '1'; }
     const al = acceptLangs();
     if (al) { for (const k of Object.keys(h)) if (k.toLowerCase() === 'accept-language') delete h[k]; h['Accept-Language'] = al; }
+    extWebRequest.emit(ses, 'onBeforeSendHeaders', details);
     cb({ requestHeaders: h });
   });
 
-  adblock.attach(ses, blockPasskeys);
+  adblock.attach(ses, (details, result) => { extWebRequest.emit(ses, 'onHeadersReceived', details); return blockPasskeys(details, result); });
+  extWebRequest.attachSession(ses);
   ses.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, cb) => {
+    extWebRequest.emit(ses, 'onBeforeRequest', details);
     try { if (adblock.onBeforeRequest(details, cb)) return; } catch { /* ignore */ }
     try { sniffMedia(details); } catch { /* ignore */ }
     cb({});
@@ -632,6 +636,42 @@ function textFragmentURL(pageURL, text) {
   const frag = words.length > 10 ? `${enc(words.slice(0, 4).join(' '))},${enc(words.slice(-4).join(' '))}` : enc(text);
   return pageURL.replace(/#.*$/, '') + '#:~:text=' + frag;
 }
+/* النوافذ اللي بتفضل مربوطة بالصفحة اللي فتحتها (window.opener) */
+const KEEP_OPENER_FROM = /(^|\.)(ads\.snapchat\.com|business\.snapchat\.com|ads\.tiktok\.com|business\.tiktok\.com|ads\.google\.com|tagassistant\.google\.com|tagmanager\.google\.com|analytics\.google\.com|business\.facebook\.com|adsmanager\.facebook\.com|blogger\.com)$/i;
+// صفحات مساعدة وسياسات بتتفتح عادي في تبويب
+const HELP_HOST = /(^|\.)(support\.google\.com|businesshelp\.snapchat\.com|help\.snapchat\.com|support\.tiktok\.com|developers\.google\.com|developers\.facebook\.com|policies\.google\.com|accounts\.google\.com|youtube\.com|ads\.tiktok\.com|business\.tiktok\.com|forbusiness\.snapchat\.com)$/i;
+function keepsOpener(details, guest) {
+  const { url, disposition } = details;
+  if (!/^(https?:|about:blank$)/i.test(url || '')) return false;
+  // فورم بيتبعت لنافذة جديدة (POST): لو فتحناه تبويب البيانات بتضيع
+  if (details.postBody && /^https?:/i.test(url)) return true;
+  if (disposition === 'background-tab') return false;
+  let from = '';
+  try { from = new URL(guest.getURL()).hostname; } catch { return false; }
+  if (!KEEP_OPENER_FROM.test(from)) return false;
+  // بلوجر بيفتح نافذة فاضية وبعدين يكتب فيها الرابط: بنفضل نحوّلها لتبويب إلا لو طلعت معاينة (شوف did-create-window)
+  if (url === 'about:blank') return !/(^|\.)blogger\.com$/i.test(from);
+  const to = hostOf(url);
+  if (/(^|\.)blogger\.com$/i.test(from)) {
+    // بلوجر: المعاينة بس (عرض المدونة نفسها بيتفتح في تبويب عادي)
+    return /preview/i.test(url) && !HELP_HOST.test(to);
+  }
+  // أداة الأحداث بتفتح موقعك أنت (أو صفحة من الأداة نفسها) وبتكلمه من خلال window.opener
+  return !HELP_HOST.test(to) || /tagassistant\.google\.com$/i.test(to);
+}
+function setupPopup(child, opener) {
+  const wc = child.webContents;
+  const partition = partitionOfWebContents(opener) || partitionOfWebContents(wc) || 'persist:default';
+  // الإضافات (Pixel Helper) تشوف النافذة دي كتبويب
+  try { extensions.addTab(wc, partition); } catch { /* ignore */ }
+  wc.on('before-input-event', (e, input) => {
+    if (input.type !== 'keyDown') return;
+    const k = String(input.key || '').toLowerCase();
+    if (k === 'f12' || ((input.control || input.meta) && input.shift && k === 'i')) { e.preventDefault(); wc.toggleDevTools(); }
+    else if (k === 'f5' || ((input.control || input.meta) && k === 'r')) { e.preventDefault(); wc.reload(); }
+  });
+  wc.on('page-title-updated', (_e, title) => { try { child.setTitle(title || 'متصفح العالمي'); } catch { /* ignore */ } });
+}
 function setupGuest(guest) {
   guest.on('before-input-event', (e, input) => handleShortcut(e, input, guest));
   // هوية كروم العادية لسناب شات (لازم تتغير قبل ما الصفحة تتحمل علشان navigator.userAgent كمان)
@@ -659,8 +699,15 @@ function setupGuest(guest) {
   guest.on('did-navigate', () => scheduleFlush());
 
   // الروابط التي تفتح في نافذة جديدة تفتح كتبويب جديد بنفس الحساب
-  guest.setWindowOpenHandler(({ url, disposition }) => {
+  guest.setWindowOpenHandler((details) => {
+    const { url, disposition } = details;
     const partition = partitionOfWebContents(guest);
+    // نافذة لازم تفضل مربوطة بالصفحة اللي فتحتها (window.opener): أداة إعداد أحداث البيكسل في سناب وتيك توك،
+    // Tag Assistant بتاع جوجل، ومعاينة بلوجر. التبويب العادي بيقطع الربط ده فكانت بتلف ومش بتحفظ.
+    if (keepsOpener(details, guest)) {
+      return { action: 'allow', outlivesOpener: true, overrideBrowserWindowOptions: { width: 1280, height: 860, show: true, autoHideMenuBar: true,
+        backgroundColor: '#ffffff', webPreferences: { partition, contextIsolation: true, nodeIntegration: false } } };
+    }
     if (disposition === 'new-window' && /^https?:/.test(url)) {
       // نوافذ منبثقة حقيقية (مثل نوافذ تسجيل الدخول OAuth) تبقى منبثقة بنفس الجلسة
       return { action: 'allow', overrideBrowserWindowOptions: { width: 600, height: 720,
@@ -670,7 +717,8 @@ function setupGuest(guest) {
     if (url === 'about:blank') {
       // جيميل وغيره بيفتحوا تبويب فاضي وبعدين يكتبوا فيه الرابط (علشان يخفوا المصدر)،
       // فبنفتحه مخفي ولما يروح لرابط حقيقي نفتح الرابط ده في تبويب جديد بنفس الحساب
-      pendingBlank.push({ partition, background: disposition === 'background-tab' });
+      let from = ''; try { from = new URL(guest.getURL()).hostname; } catch { /* ignore */ }
+      pendingBlank.push({ partition, background: disposition === 'background-tab', keepPreview: /(^|\.)blogger\.com$/i.test(from) });
       return { action: 'allow', overrideBrowserWindowOptions: { show: false,
         webPreferences: { partition, contextIsolation: true, nodeIntegration: false } } };
     }
@@ -680,6 +728,7 @@ function setupGuest(guest) {
   });
   const pendingBlank = [];
   guest.on('did-create-window', (child, { url }) => {
+    if (child.isVisible()) setupPopup(child, guest);
     if (url !== 'about:blank' || child.isVisible()) return;
     const info = pendingBlank.shift() || { partition: partitionOfWebContents(guest) };
     const wc = child.webContents;
@@ -687,6 +736,12 @@ function setupGuest(guest) {
     const toTab = (e, target, isMainFrame = true) => {
       if (done || !isMainFrame || !/^https?:/i.test(target || '')) return;
       done = true;
+      // معاينة بلوجر: محتاجة النافذة اللي فتحتها (window.opener) فبتفضل نافذة لوحدها بدل تبويب
+      if (info.keepPreview && /preview/i.test(target)) {
+        try { child.setBounds({ width: 1280, height: 860 }); child.center(); child.setMenuBarVisibility(false); child.show(); } catch { /* ignore */ }
+        setupPopup(child, guest);
+        return;
+      }
       if (e && e.preventDefault) e.preventDefault();
       if (!guest.isDestroyed()) sendTo(guest, 'open-tab', { url: target, partition: info.partition, background: info.background });
       setImmediate(() => { if (!child.isDestroyed()) child.destroy(); });
@@ -1633,7 +1688,7 @@ ipcMain.handle('settings:save', (_e, s) => {
     if (typeof s.translateTo === 'string' && /^[a-zA-Z-]{2,8}$/.test(s.translateTo)) store.settings.translateTo = s.translateTo;
     if (['system', 'light', 'dark'].includes(s.theme)) { store.settings.theme = s.theme; nativeTheme.themeSource = s.theme; }
     if (Array.isArray(s.hiddenShortcuts)) store.settings.hiddenShortcuts = s.hiddenShortcuts.filter(x => typeof x === 'string').slice(-200);
-    for (const k of ['showBookmarksBar', 'askDownload', 'hardwareAcceleration', 'videoOverlay', 'showFeed', 'showSidebar', 'doNotTrack', 'showWidgets', 'httpsFirst', 'allowPasskeys', 'askLocation', 'translateOffer']) if (typeof s[k] === 'boolean') store.settings[k] = s[k];
+    for (const k of ['showBookmarksBar', 'askDownload', 'hardwareAcceleration', 'videoOverlay', 'showFeed', 'showSidebar', 'doNotTrack', 'showWidgets', 'httpsFirst', 'allowPasskeys', 'allowAdPixels', 'askLocation', 'translateOffer']) if (typeof s[k] === 'boolean') store.settings[k] = s[k];
     if (ZOOMS.includes(s.defaultZoom)) store.settings.defaultZoom = s.defaultZoom;
     if (s.downloadDir === '') store.settings.downloadDir = '';
     const ids = (v) => v.filter(x => typeof x === 'string' && /^[a-z]{2,12}$/.test(x)).slice(0, 30);

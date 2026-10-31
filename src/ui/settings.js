@@ -81,6 +81,7 @@ const settingsSections = {
     drawAllow();
     return [card(
       settingRow('مانع الإعلانات', 'بيمنع إعلانات يوتيوب (قبل الفيديو وفي النص) وإعلانات المواقع والنوافذ المزعجة والمتتبعات. بيستخدم نفس قوايم uBlock Origin و EasyList وبيحدّثها لوحده.', toggle('adblock')),
+      settingRow('السماح ببيكسل الإعلانات', 'سيبه شغال لو بتعمل إعلانات: بيسمح بسكربتات البيكسل بتاعة سناب شات وتيك توك وجوجل أدز وميتا علشان إعداد الأحداث وإضافات Pixel Helper و Tag Assistant يشتغلوا. الإعلانات نفسها بتفضل ممنوعة.', toggle('allowAdPixels')),
       settingRow('تحديث قوايم الإعلانات', 'بتتحدث لوحدها كل 3 أيام.',
         el('button', { onclick: async () => { toast('بنحدّث...'); const r = await api.adblockUpdate(); toast(r.ok ? 'اتحدثت ✅' : 'ما نجحش، اتأكد من الإنترنت'); } }, 'تحديث دلوقتي')),
       el('div', { class: 'stitle', style: 'margin:10px 0 4px' }, 'مواقع مسموح فيها بالإعلانات'), allowList),

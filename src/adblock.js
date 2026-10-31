@@ -87,8 +87,12 @@ const BLOGGER_PREVIEW = /^https:\/\/[^/]+\/b\/(post|page)-preview\b/i;
 // البيكسل مش بيشتغل على موقعك ولا «Pixel Helper» بيشوفه ولا أداة إعداد الأحداث بتحفظ
 const PIXEL_HOST = /(^|\.)(tr\.snapchat\.com|tr-shadow\.snapchat\.com|sc-static\.net|analytics\.tiktok\.com|analytics-sg\.tiktok\.com|analytics\.us\.tiktok\.com|business-api\.tiktok\.com|googletagmanager\.com|google-analytics\.com|googleadservices\.com|googleads\.g\.doubleclick\.net|td\.doubleclick\.net|stats\.g\.doubleclick\.net|connect\.facebook\.net|ct\.pinterest\.com|analytics\.twitter\.com|static\.ads-twitter\.com|px\.ads\.linkedin\.com|snap\.licdn\.com)$/i;
 const PIXEL_PATH = /^https:\/\/(www\.)?(google\.[a-z.]+\/(pagead\/|ccm\/|ads\/ga-audiences|rmkt\/)|facebook\.com\/tr\b|s\.pinimg\.com\/ct\/)/i;
-function isPixel(url) {
+// يوتيوب بيكشف مانع الإعلانات لو طلبات الإعلانات اتمنعت نص نص («تخالف أدوات حظر الإعلانات بنود الخدمة»)،
+// فهناك بنفضل نمنعها كلها زي الأول
+const NO_PIXEL_PAGE = /^https?:\/\/([a-z0-9-]+\.)*(youtube\.com|youtube-nocookie\.com|youtubekids\.com)(:\d+)?\//i;
+function isPixel(url, pageUrl) {
   if (settings().allowAdPixels === false) return false;
+  if (NO_PIXEL_PAGE.test(pageUrl || '')) return false;
   try { if (PIXEL_HOST.test(new URL(url).hostname)) return true; } catch { return false; }
   return PIXEL_PATH.test(url);
 }
@@ -110,7 +114,7 @@ function onBeforeRequest(details, cb) {
     return false;
   }
   if (!activeFor(pageUrlOf(details))) return false;
-  if (isPixel(details.url)) return false;
+  if (isPixel(details.url, pageUrlOf(details))) return false;
   let result = {};
   engine.onBeforeRequest(details, (r) => { result = r; });
   if (!result.cancel && !result.redirectURL) return false;

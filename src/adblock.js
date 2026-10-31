@@ -78,27 +78,8 @@ function siteAllowed(pageUrl) {
 /** شغال على الصفحة دي ولا لأ (الإعداد عام + الموقع مش في قايمة المسموح). */
 // صفحات تسجيل الدخول بتاعة جوجل: مانع الإعلانات لو منع أي سكربت فيها (زي فحص الأمان) جوجل بترفض الدخول
 const LOGIN_PAGE = /^https:\/\/(accounts\.google\.[a-z.]+|accounts\.youtube\.com|myaccount\.google\.com|gds\.google\.com)\//;
-// أدوات المعلنين وبلوجر: القوايم بتمنع حاجات جوه لوحات الإعلانات نفسها (سكربتات البيكسل، «Event Builder»،
-// أماكن فيها كلمة ad) فحفظ الأحداث كان بيفشل. المانع بيتقفل في الصفحات دي زي ما المعلن محتاج.
-const AD_TOOL_PAGE = /^https:\/\/([a-z0-9-]+\.)*(ads\.snapchat\.com|business\.snapchat\.com|forbusiness\.snapchat\.com|businesshelp\.snapchat\.com|ads\.tiktok\.com|business\.tiktok\.com|getstarted\.tiktok\.com|ads\.google\.com|tagassistant\.google\.com|tagmanager\.google\.com|analytics\.google\.com|search\.google\.com|business\.google\.com|merchants\.google\.com|adsense\.google\.com|business\.facebook\.com|adsmanager\.facebook\.com|blogger\.com)(:\d+)?\//i;
-// معاينة بلوجر (بتتفتح على مدونتك نفسها في blogspot)
-const BLOGGER_PREVIEW = /^https:\/\/[^/]+\/b\/(post|page)-preview\b/i;
-// سكربتات وطلبات البيكسل نفسها (سناب، تيك توك، جوجل، ميتا، بنترست، إكس، لينكدإن): من غيرها
-// البيكسل مش بيشتغل على موقعك ولا «Pixel Helper» بيشوفه ولا أداة إعداد الأحداث بتحفظ
-const PIXEL_HOST = /(^|\.)(tr\.snapchat\.com|tr-shadow\.snapchat\.com|sc-static\.net|analytics\.tiktok\.com|analytics-sg\.tiktok\.com|analytics\.us\.tiktok\.com|business-api\.tiktok\.com|googletagmanager\.com|google-analytics\.com|googleadservices\.com|googleads\.g\.doubleclick\.net|td\.doubleclick\.net|stats\.g\.doubleclick\.net|connect\.facebook\.net|ct\.pinterest\.com|analytics\.twitter\.com|static\.ads-twitter\.com|px\.ads\.linkedin\.com|snap\.licdn\.com)$/i;
-const PIXEL_PATH = /^https:\/\/(www\.)?(google\.[a-z.]+\/(pagead\/|ccm\/|ads\/ga-audiences|rmkt\/)|facebook\.com\/tr\b|s\.pinimg\.com\/ct\/)/i;
-// يوتيوب بيكشف مانع الإعلانات لو طلبات الإعلانات اتمنعت نص نص («تخالف أدوات حظر الإعلانات بنود الخدمة»)،
-// فهناك بنفضل نمنعها كلها زي الأول
-const NO_PIXEL_PAGE = /^https?:\/\/([a-z0-9-]+\.)*(youtube\.com|youtube-nocookie\.com|youtubekids\.com)(:\d+)?\//i;
-function isPixel(url, pageUrl) {
-  if (settings().allowAdPixels === false) return false;
-  if (NO_PIXEL_PAGE.test(pageUrl || '')) return false;
-  try { if (PIXEL_HOST.test(new URL(url).hostname)) return true; } catch { return false; }
-  return PIXEL_PATH.test(url);
-}
 function activeFor(pageUrl) {
   if (LOGIN_PAGE.test(pageUrl || '')) return false;
-  if (AD_TOOL_PAGE.test(pageUrl || '') || BLOGGER_PREVIEW.test(pageUrl || '')) return false;
   return !!engine && settings().adblock !== false && /^https?:/.test(pageUrl || '') && !siteAllowed(pageUrl);
 }
 
@@ -114,7 +95,6 @@ function onBeforeRequest(details, cb) {
     return false;
   }
   if (!activeFor(pageUrlOf(details))) return false;
-  if (isPixel(details.url, pageUrlOf(details))) return false;
   let result = {};
   engine.onBeforeRequest(details, (r) => { result = r; });
   if (!result.cancel && !result.redirectURL) return false;
@@ -170,4 +150,4 @@ function stats(wcId) {
   return { blocked: total, tab: perTab.get(wcId) || 0 };
 }
 
-module.exports = { init, attach, onBeforeRequest, activeFor, isPixel, siteAllowed, hostOf, stats, update, load, PRELOAD };
+module.exports = { init, attach, onBeforeRequest, activeFor, siteAllowed, hostOf, stats, update, load, PRELOAD };

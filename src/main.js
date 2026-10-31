@@ -1688,7 +1688,7 @@ ipcMain.handle('settings:save', (_e, s) => {
     if (typeof s.translateTo === 'string' && /^[a-zA-Z-]{2,8}$/.test(s.translateTo)) store.settings.translateTo = s.translateTo;
     if (['system', 'light', 'dark'].includes(s.theme)) { store.settings.theme = s.theme; nativeTheme.themeSource = s.theme; }
     if (Array.isArray(s.hiddenShortcuts)) store.settings.hiddenShortcuts = s.hiddenShortcuts.filter(x => typeof x === 'string').slice(-200);
-    for (const k of ['showBookmarksBar', 'askDownload', 'hardwareAcceleration', 'videoOverlay', 'showFeed', 'showSidebar', 'doNotTrack', 'showWidgets', 'httpsFirst', 'allowPasskeys', 'allowAdPixels', 'askLocation', 'translateOffer']) if (typeof s[k] === 'boolean') store.settings[k] = s[k];
+    for (const k of ['showBookmarksBar', 'askDownload', 'hardwareAcceleration', 'videoOverlay', 'showFeed', 'showSidebar', 'doNotTrack', 'showWidgets', 'httpsFirst', 'allowPasskeys', 'askLocation', 'translateOffer']) if (typeof s[k] === 'boolean') store.settings[k] = s[k];
     if (ZOOMS.includes(s.defaultZoom)) store.settings.defaultZoom = s.defaultZoom;
     if (s.downloadDir === '') store.settings.downloadDir = '';
     const ids = (v) => v.filter(x => typeof x === 'string' && /^[a-z]{2,12}$/.test(x)).slice(0, 30);

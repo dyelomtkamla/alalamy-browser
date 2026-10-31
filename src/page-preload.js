@@ -143,8 +143,78 @@ function visible(el) {
   return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
 }
 function passwordFields(root = document) {
-  return [...root.querySelectorAll('input[type="password"]')].filter(visible);
+  // الحقول اللي المستخدم أظهرها بزرار العين (بقت type=text) لسه حقول باسورد
+  return [...root.querySelectorAll('input[type="password"], input[data-alalamy-shown]')].filter(visible);
 }
+
+/* زرار «إظهار الباسورد» 👁 جوه أي خانة باسورد في أي موقع (جوجل، فيسبوك، سناب...) زي إيدج */
+(() => {
+  let host = null, btn = null, target = null, hideTimer = 0, raf = 0;
+  const EYE = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+  const EYE_OFF = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10 10 0 0 1 12 19C5 19 1 12 1 12a18 18 0 0 1 5.06-5.94M9.9 4.24A9 9 0 0 1 12 4c7 0 11 7 11 7a18 18 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>';
+  const isPw = (el) => el && el.tagName === 'INPUT' && (el.type === 'password' || el.hasAttribute('data-alalamy-shown'));
+  function make() {
+    if (host && host.isConnected) return;
+    host = document.createElement('alalamy-pw-eye');
+    host.style.cssText = 'all:initial;position:fixed;z-index:2147483647;display:none;width:30px;height:30px;';
+    const root = host.attachShadow({ mode: 'closed' });
+    root.innerHTML = '<style>button{all:initial;box-sizing:border-box;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:50%;cursor:pointer;color:#5f6368;background:rgba(255,255,255,.92)}button:hover{background:#e8eaed;color:#202124}@media (prefers-color-scheme:dark){button{background:rgba(48,49,52,.92);color:#bdc1c6}button:hover{background:#5f6368;color:#fff}}</style><button type="button" tabindex="-1"></button>';
+    btn = root.querySelector('button');
+    // من غير ما الخانة تفقد التركيز
+    btn.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); });
+    btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); toggle(); });
+    host.addEventListener('mouseenter', () => clearTimeout(hideTimer));
+    host.addEventListener('mouseleave', () => scheduleHide());
+    document.documentElement.appendChild(host);
+  }
+  function shown(el) { return el.hasAttribute('data-alalamy-shown'); }
+  function toggle() {
+    const el = target;
+    if (!el || !el.isConnected) return;
+    if (shown(el)) { el.type = 'password'; el.removeAttribute('data-alalamy-shown'); }
+    else { el.setAttribute('data-alalamy-shown', '1'); el.type = 'text'; }
+    paint();
+    try { el.focus({ preventScroll: true }); const n = el.value.length; el.setSelectionRange(n, n); } catch { /* ignore */ }
+  }
+  function paint() { if (btn && target) { btn.innerHTML = shown(target) ? EYE_OFF : EYE; btn.title = shown(target) ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'; } }
+  function place() {
+    raf = 0;
+    if (!host || !target || !target.isConnected || !visible(target)) { if (host) host.style.display = 'none'; return; }
+    const r = target.getBoundingClientRect();
+    if (r.height < 16 || r.width < 60) { host.style.display = 'none'; return; }
+    const rtl = getComputedStyle(target).direction === 'rtl';
+    const size = 30;
+    host.style.top = Math.round(r.top + (r.height - size) / 2) + 'px';
+    host.style.left = Math.round(rtl ? r.left + 6 : r.right - size - 6) + 'px';
+    host.style.display = 'block';
+    raf = requestAnimationFrame(place); // بيمشي مع الخانة لو الصفحة اتحركت
+  }
+  function show(el) {
+    if (!isPw(el)) return;
+    make();
+    clearTimeout(hideTimer);
+    target = el;
+    paint();
+    if (!raf) place();
+  }
+  function scheduleHide() {
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      if (target && (document.activeElement === target || target.matches(':hover'))) return;
+      if (raf) cancelAnimationFrame(raf); raf = 0;
+      if (host) host.style.display = 'none';
+    }, 250);
+  }
+  // قبل ما الصفحة تبعت الفورم الباسورد يرجع مخفي (المواقع وحفظ كلمات المرور بيدوروا على type=password)
+  const hideAll = () => { for (const el of document.querySelectorAll('input[data-alalamy-shown]')) { el.type = 'password'; el.removeAttribute('data-alalamy-shown'); } paint(); };
+  window.addEventListener('submit', hideAll, true);
+  window.addEventListener('pagehide', hideAll, true);
+  window.addEventListener('keydown', (e) => { if (e.key === 'Enter' && isPw(e.target) && shown(e.target)) hideAll(); }, true);
+  window.addEventListener('focusin', (e) => show(e.target), true);
+  window.addEventListener('focusout', (e) => { if (isPw(e.target)) scheduleHide(); }, true);
+  window.addEventListener('mouseover', (e) => { if (isPw(e.target)) show(e.target); }, true);
+  window.addEventListener('mouseout', (e) => { if (isPw(e.target)) scheduleHide(); }, true);
+})();
 function userFieldFor(pw) {
   const scope = pw.form || document;
   const candidates = [...scope.querySelectorAll(

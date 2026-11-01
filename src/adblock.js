@@ -96,13 +96,14 @@ function onBeforeRequest(details, cb) {
     return false;
   }
   if (!activeFor(pageUrlOf(details))) return false;
+  // يوتيوب: أي طلب بنقفله بيفشل بخطأ شبكة، ويوتيوب بقى بيكشف ده ويقفل الفيديو («تخالف أدوات حظر الإعلانات...»).
+  // نسخة الموبايل مابتظهرش فيها الرسالة لإنها بترد على الطلبات الممنوعة برد فاضي سليم، وده مش متاح هنا.
+  // فعلى يوتيوب مش بنقفل أي طلب: الإعلانات بتتشال من بيانات الفيديو قبل ما المشغّل يشوفها (YT_SHIELD في page-preload)
+  // وأي إعلان يفلت بيتخطى لوحده، وأماكن الإعلانات بتستخبى بـ CSS. ده نفس اللي شغال على الموبايل.
+  if (YT_PAGE.test(pageUrlOf(details))) return false;
   let result = {};
   engine.onBeforeRequest(details, (r) => { result = r; });
   if (!result.cancel && !result.redirectURL) return false;
-  // uBlock بيرد على طلبات زي ad_status.js و pagead/id بملف بديل فاضي، وإحنا ماينفعش نحوّل لـ data: فكنا بنمنعها.
-  // يوتيوب بقى بيبص على الطلبات دي: لو فشلت يعرف إن فيه مانع ويقفل الفيديو («تخالف أدوات حظر الإعلانات...»).
-  // فعلى يوتيوب بنسيب الطلبات اللي ليها بديل تعدّي زي ما هي (مش إعلانات، دي فحوصات بس)
-  if (result.redirectURL && YT_PAGE.test(pageUrlOf(details))) return false;
   total++;
   if (details.webContentsId) perTab.set(details.webContentsId, (perTab.get(details.webContentsId) || 0) + 1);
   // التحويل لـ data: بيفشل في كروميوم (ERR_UNSAFE_REDIRECT)، فنمنع الطلب على طول

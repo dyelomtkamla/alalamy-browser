@@ -1372,7 +1372,7 @@ function broadcastClients() {
 ipcMain.handle('clients:save', (_e, list) => {
   if (!Array.isArray(list)) return store.clients;
   const seen = new Set();
-  store.clients = list.filter(c => c && /^c_[a-z0-9]{4,20}$/.test(c.id) && !seen.has(c.id) && seen.add(c.id)).slice(0, 500).map(cleanClient);
+  store.clients = list.filter(c => c && /^c_[a-z0-9]{4,20}$/.test(c.id) && !seen.has(c.id) && seen.add(c.id)).map(cleanClient);
   writeJSON('clients.json', store.clients, true);
   broadcastClients();
   return store.clients;

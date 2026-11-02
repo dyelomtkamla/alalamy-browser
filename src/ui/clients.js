@@ -52,6 +52,20 @@ function takeClientTabs(id) {
   return tabs;
 }
 
+// جلسة جديدة بدوسة واحدة: «جلسة 1» ثم «جلسة 2»... من غير حد أقصى، كل واحدة نافذة وكوكيز لوحدها
+async function quickSession() {
+  const used = new Set(state.clients.map(c => c.name));
+  let n = 1; while (used.has('جلسة ' + n)) n++;
+  const id = 'c_' + randomId();
+  const color = CLIENT_COLORS[state.clients.length % CLIENT_COLORS.length];
+  state.clients = await api.saveClients([...state.clients, { id, name: 'جلسة ' + n, color, sites: CLIENT_SITES.filter(x => x.def).map(x => x.key), created: Date.now() }]);
+  const c = clientById(id);
+  if (!c) return toast('تعذر فتح جلسة جديدة');
+  api.openClientWindow(c.id, {});
+  toast(`اتفتحت «${c.name}» في نافذة لوحدها. تقدر تغير اسمها من ✎`);
+  return c;
+}
+
 // كل عميل له نافذة وجلسة لوحده (عميل 1 و2 و3... مفتوحين مع الرئيسية في نفس الوقت).
 // اختيار عميل بيفتح نافذته أو يرجعك ليها لو مفتوحة، و«حسابي الشخصي» بيرجعك للنافذة الرئيسية.
 function switchClient(id) {
@@ -219,7 +233,8 @@ function showClientMenu(fromProfile = false) {
   };
   m.append(el('div', { class: 'mhead' }, 'العملاء'), row(null), ...state.clients.map(row));
   if (!state.clients.length) m.append(el('p', { class: 'mhint' }, 'ضيف كل عميل باسمه، وسجّل دخول حساباته مرة واحدة. بعد كده تبدّل بينهم من هنا من غير تسجيل خروج.'));
-  m.append(el('hr'), el('button', { onclick: () => { hidePopups(); openClientDialog(); } }, el('b', {}, '+'), ' إضافة عميل جديد'));
+  m.append(el('hr'), el('button', { onclick: () => { hidePopups(); openClientDialog(); } }, el('b', {}, '+'), ' إضافة عميل جديد'),
+    el('button', { onclick: () => { hidePopups(); quickSession(); } }, el('b', {}, '⧉'), ' جلسة جديدة على طول (نافذة لوحدها)'));
   const c = currentClient();
   if (c) {
     // منصات العميل الحالي: دوسة تفتح أي منصة لوحدها، وتعديل المنصات في أي وقت
@@ -406,9 +421,15 @@ window.__clientsTest = async () => {
   await wait(300);
   wins = await api.clientWindows();
   const noDuplicate = wins.length === 2;
+  // جلسات بلا حد: 4 جلسات سريعة مفتوحين مع الاتنين اللي قبل كده
+  const quick = [];
+  for (let i = 0; i < 4; i++) quick.push(await quickSession());
+  for (let i = 0; i < 60 && wins.length < 6; i++) { await wait(100); wins = await api.clientWindows(); }
+  const manySessions = wins.length === 6 && quick.every(q => q && wins.includes(q.id)) && quick[3].name !== quick[0].name;
+  for (const q of quick) await removeClient(clientById(q.id), true);
   await removeClient(clientById(id2), true);
   await removeClient(clientById(id), true);
   await wait(300);
   const removed = !clientById(id) && !(await api.clientWindows()).length && state.client === null;
-  return { saved, clientPartition, ownWindow, movedOut, mainKept, chipShows, sameWindow, bothOpen, noDuplicate, removed };
+  return { saved, clientPartition, ownWindow, movedOut, mainKept, chipShows, sameWindow, bothOpen, noDuplicate, manySessions, removed };
 };

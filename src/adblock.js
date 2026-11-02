@@ -138,6 +138,8 @@ function init(getSettings) {
   // وبتعمل «Maximum call stack» في يوتيوب فالفيديو ما يشتغلش غير بعد ريفرش.
   ipcMain.handle('@ghostery/adblocker/inject-cosmetic-filters', (event, url, msg) => {
     if (!activeFor(url)) return undefined;
+    // يوتيوب: قوايم الإخفاء العامة ممكن تخفي عناصر يوتيوب بيستخدمها لكشف المانع، فبنكتفي بالـ CSS بتاعنا (YT_CSS)
+    if (isYouTube(url)) return undefined;
     const p = parseDomain(url);
     const first = msg === undefined;
     const { active, styles } = engine.getCosmeticsFilters({

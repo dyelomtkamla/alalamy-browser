@@ -723,21 +723,8 @@ window.addEventListener('DOMContentLoaded', async () => {
 // بيكتم صوته ويخلّصه في لحظة ويدوس «تخطي» لوحده.
 const YT_SHIELD = `(() => {
   if (window.__alalamyYT) return; window.__alalamyYT = 1;
-  const KEYS = ['adPlacements', 'playerAds', 'adSlots', 'adBreakHeartbeatParams'];
-  const clean = (o) => {
-    if (!o || typeof o !== 'object') return o;
-    for (const k of KEYS) if (k in o) { try { delete o[k]; } catch (e) {} }
-    if (o.playerResponse) clean(o.playerResponse);
-    if (Array.isArray(o)) for (const x of o) if (x && x.playerResponse) clean(x.playerResponse);
-    return o;
-  };
-  const hasAds = (o) => o && typeof o === 'object' && (o.adPlacements || o.playerAds || o.adSlots || o.playerResponse || Array.isArray(o));
-  const jp = JSON.parse;
-  JSON.parse = function () { const r = jp.apply(this, arguments); try { if (hasAds(r)) clean(r); } catch (e) {} return r; };
-  const rj = Response.prototype.json;
-  Response.prototype.json = function () { return rj.call(this).then((r) => { try { if (hasAds(r)) clean(r); } catch (e) {} return r; }); };
-  let ipr;
-  try { Object.defineProperty(window, 'ytInitialPlayerResponse', { configurable: true, get() { return ipr; }, set(v) { ipr = clean(v); } }); } catch (e) {}
+  // 1.19.3: مابقيناش نشيل الإعلانات من بيانات الفيديو: يوتيوب بقى بيكشف ده ويطلع رسالة «أدوات حظر الإعلانات».
+  // بدل كده الإعلان بيتحمّل عادي وبيتخطّى في لحظة وهو مكتوم (زي ما تكون دست «تخطي» بنفسك).
   // رسالة يوتيوب «أدوات حظر الإعلانات تخالف بنود الخدمة»: الكود اللي بيظهرها بيتسجل كـ callback اسمه onAbnormalityDetected
   // (نفس طريقة uBlock Origin): بنبدله بدالة فاضية فالرسالة ماتظهرش
   try {
@@ -746,35 +733,6 @@ const YT_SHIELD = `(() => {
       try { if (typeof args[0] === 'function' && String(args[0]).includes('onAbnormalityDetected')) args[0] = function () {}; } catch (e) {}
       return Reflect.apply(t, self, args);
     } });
-  } catch (e) {}
-  // بيانات الفيديو بتيجي كنص من /player: بنشيل الإعلانات من النص نفسه (أي طريقة قراية بعد كده تلاقيها نضيفة)
-  const AD_URL = /\\/youtubei\\/v1\\/(player|next|reel\\/reel_item_watch)|[?&]pbj=1|\\/watch\\?/;
-  const scrub = (t) => typeof t === 'string' ? t.replace(/"adPlacements"/g, '"no_ads"').replace(/"adSlots"/g, '"no_ads"').replace(/"playerAds"/g, '"no_ads"') : t;
-  try {
-    const of = window.fetch;
-    window.fetch = new Proxy(of, { apply(t, self, args) {
-      const req = args[0]; const url = typeof req === 'string' ? req : (req && req.url) || '';
-      const p = Reflect.apply(t, self, args);
-      if (!AD_URL.test(url)) return p;
-      return p.then((res) => res.clone().text().then((txt) => {
-        if (!/"(adPlacements|adSlots|playerAds)"/.test(txt)) return res;
-        const r = new Response(scrub(txt), { status: res.status, statusText: res.statusText, headers: res.headers });
-        try { Object.defineProperty(r, 'url', { value: res.url }); } catch (e) {}
-        return r;
-      }).catch(() => res));
-    } });
-  } catch (e) {}
-  try {
-    const X = XMLHttpRequest.prototype, open = X.open;
-    X.open = function (m, u) { this.__ytAd = AD_URL.test(String(u || '')); return open.apply(this, arguments); };
-    for (const k of ['responseText', 'response']) {
-      const d = Object.getOwnPropertyDescriptor(X, k);
-      if (!d || !d.get) continue;
-      Object.defineProperty(X, k, { configurable: true, enumerable: d.enumerable, get() {
-        const v = d.get.call(this);
-        return this.__ytAd && this.readyState === 4 && typeof v === 'string' ? scrub(v) : v;
-      } });
-    }
   } catch (e) {}
   // لو الرسالة ظهرت برضه: نقفلها ونكمّل الفيديو، ولو الفيديو اتقفل بشاشة الخطأ بتاعتها نعيد تحميله
   const killWall = () => {
@@ -796,7 +754,7 @@ const YT_SHIELD = `(() => {
   };
   setInterval(killWall, 700);
   let saved = null;
-  setInterval(() => {
+  const skip = () => {
     const p = document.querySelector('#movie_player, .html5-video-player');
     const v = p && p.querySelector('video');
     if (!v) return;
@@ -810,7 +768,16 @@ const YT_SHIELD = `(() => {
     } else if (saved) {
       v.muted = saved.muted; v.playbackRate = saved.rate || 1; saved = null;
     }
-  }, 250);
+  };
+  setInterval(skip, 150);
+  // أول ما الإعلان يبدأ (المشغّل بياخد class ad-showing) نتخطاه على طول من غير ما نستنى
+  const watchPlayer = () => {
+    const p = document.querySelector('#movie_player');
+    if (!p || p.__alalamyObs) return;
+    p.__alalamyObs = 1;
+    new MutationObserver(skip).observe(p, { attributes: true, attributeFilter: ['class'] });
+  };
+  setInterval(watchPlayer, 1000);
 })();`;
 const YT_CSS = `#player-ads, #masthead-ad, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer, ytd-banner-promo-renderer,
 ytd-promoted-sparkles-web-renderer, ytd-promoted-video-renderer, ytd-display-ad-renderer, ytd-companion-slot-renderer,

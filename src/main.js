@@ -15,10 +15,19 @@ const path = require('path');
     uiOnly = new Set([...src.matchAll(/(?:invoke|send|sendSync)\('([^']+)'/g)].map(m => m[1]));
   } catch { /* ignore */ }
   const uiBase = require('url').pathToFileURL(path.join(__dirname, 'ui') + path.sep).href;
+  const norm = (u) => { try { return decodeURIComponent(String(u)).replace(/\\/g, '/').toLowerCase(); } catch { return String(u).toLowerCase(); } };
+  const uiBaseN = norm(uiBase);
   const fromUI = (e) => {
-    let u = '';
-    try { u = (e.senderFrame && e.senderFrame.url) || e.sender.getURL(); } catch { /* ignore */ }
-    return typeof u === 'string' && u.startsWith(uiBase);
+    try {
+      // واجهة المتصفح = نافذة من نوافذنا (مش صفحة ويب جوه webview ولا نافذة منبثقة) ومفتوح فيها ملف محلي
+      if (e.sender.getType() !== 'window') return false;
+      const u = (e.senderFrame && e.senderFrame.url) || e.sender.getURL();
+      if (!/^file:/i.test(u || '')) return false;
+      if (norm(u).startsWith(uiBaseN)) return true;
+      // مسار التثبيت ممكن يتكتب بشكل مختلف (حروف عربي، مسار مختصر...): نتأكد إنها نافذة واجهة فعلاً
+      const bw = BrowserWindow.fromWebContents(e.sender);
+      return !!(bw && typeof windows !== 'undefined' && windows.has(bw));
+    } catch { return false; }
   };
   const origHandle = ipcMain.handle.bind(ipcMain), origOn = ipcMain.on.bind(ipcMain);
   ipcMain.handle = (ch, fn) => origHandle(ch, uiOnly.has(ch) ? (e, ...a) => { if (!fromUI(e)) throw new Error('blocked'); return fn(e, ...a); } : fn);
@@ -1917,9 +1926,23 @@ function urlFromArgs(argv) {
   }
   return null;
 }
+// تسجيل أي خطأ يوقف البرنامج في ملف علشان نعرف السبب (error.log في مجلد بيانات المتصفح)
+function logError(kind, err) {
+  try { fs.appendFileSync(path.join(dataDir(), 'error.log'), `[${new Date().toISOString()}] ${app.getVersion()} ${kind}: ${(err && err.stack) || err}\n`); } catch { /* ignore */ }
+}
+process.on('uncaughtException', (err) => { logError('uncaught', err); console.error(err); });
+process.on('unhandledRejection', (err) => { logError('rejection', err); });
+// نافذة ظاهرة فعلاً (مش مستخبية ولا مقفولة)
+function visibleWin() { return [...windows].find(w => !w.isDestroyed() && w.isVisible()) || null; }
 app.on('second-instance', (_e, argv) => {
-  if (!win) { createWindow({ url: urlFromArgs(argv) }); return; }
+  // لو البرنامج شغال في الخلفية من غير أي نافذة ظاهرة (مثلاً بعد تحديث)، الدوسة على الأيقونة تفتح نافذة بدل ما ماتعملش حاجة
+  if (!win || win.isDestroyed() || !visibleWin()) {
+    const hidden = [...windows].find(w => !w.isDestroyed() && !w.__incognito && w.webContents && !w.webContents.isDestroyed() && /index\.html/.test(w.webContents.getURL()));
+    if (hidden) { setFocusedWin(hidden); showWin(hidden); const u = urlFromArgs(argv); if (u) sendUI('open-tab', { url: u }); return; }
+    createWindow({ url: urlFromArgs(argv) }); return;
+  }
   if (win.isMinimized()) win.restore();
+  win.show();
   win.focus();
   const url = urlFromArgs(argv);
   if (url) sendUI('open-tab', { url });

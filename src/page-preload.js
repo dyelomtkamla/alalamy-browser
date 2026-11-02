@@ -738,6 +738,63 @@ const YT_SHIELD = `(() => {
   Response.prototype.json = function () { return rj.call(this).then((r) => { try { if (hasAds(r)) clean(r); } catch (e) {} return r; }); };
   let ipr;
   try { Object.defineProperty(window, 'ytInitialPlayerResponse', { configurable: true, get() { return ipr; }, set(v) { ipr = clean(v); } }); } catch (e) {}
+  // رسالة يوتيوب «أدوات حظر الإعلانات تخالف بنود الخدمة»: الكود اللي بيظهرها بيتسجل كـ callback اسمه onAbnormalityDetected
+  // (نفس طريقة uBlock Origin): بنبدله بدالة فاضية فالرسالة ماتظهرش
+  try {
+    const then = Promise.prototype.then;
+    Promise.prototype.then = new Proxy(then, { apply(t, self, args) {
+      try { if (typeof args[0] === 'function' && String(args[0]).includes('onAbnormalityDetected')) args[0] = function () {}; } catch (e) {}
+      return Reflect.apply(t, self, args);
+    } });
+  } catch (e) {}
+  // بيانات الفيديو بتيجي كنص من /player: بنشيل الإعلانات من النص نفسه (أي طريقة قراية بعد كده تلاقيها نضيفة)
+  const AD_URL = /\\/youtubei\\/v1\\/(player|next|reel\\/reel_item_watch)|[?&]pbj=1|\\/watch\\?/;
+  const scrub = (t) => typeof t === 'string' ? t.replace(/"adPlacements"/g, '"no_ads"').replace(/"adSlots"/g, '"no_ads"').replace(/"playerAds"/g, '"no_ads"') : t;
+  try {
+    const of = window.fetch;
+    window.fetch = new Proxy(of, { apply(t, self, args) {
+      const req = args[0]; const url = typeof req === 'string' ? req : (req && req.url) || '';
+      const p = Reflect.apply(t, self, args);
+      if (!AD_URL.test(url)) return p;
+      return p.then((res) => res.clone().text().then((txt) => {
+        if (!/"(adPlacements|adSlots|playerAds)"/.test(txt)) return res;
+        const r = new Response(scrub(txt), { status: res.status, statusText: res.statusText, headers: res.headers });
+        try { Object.defineProperty(r, 'url', { value: res.url }); } catch (e) {}
+        return r;
+      }).catch(() => res));
+    } });
+  } catch (e) {}
+  try {
+    const X = XMLHttpRequest.prototype, open = X.open;
+    X.open = function (m, u) { this.__ytAd = AD_URL.test(String(u || '')); return open.apply(this, arguments); };
+    for (const k of ['responseText', 'response']) {
+      const d = Object.getOwnPropertyDescriptor(X, k);
+      if (!d || !d.get) continue;
+      Object.defineProperty(X, k, { configurable: true, enumerable: d.enumerable, get() {
+        const v = d.get.call(this);
+        return this.__ytAd && this.readyState === 4 && typeof v === 'string' ? scrub(v) : v;
+      } });
+    }
+  } catch (e) {}
+  // لو الرسالة ظهرت برضه: نقفلها ونكمّل الفيديو، ولو الفيديو اتقفل بشاشة الخطأ بتاعتها نعيد تحميله
+  const killWall = () => {
+    const w = document.querySelector('ytd-enforcement-message-view-model');
+    if (w) {
+      const dlg = w.closest('tp-yt-paper-dialog'); if (dlg) dlg.remove(); else w.remove();
+      const bd = document.querySelector('tp-yt-iron-overlay-backdrop'); if (bd) bd.remove();
+      document.body && document.body.style.removeProperty('overflow');
+      const v = document.querySelector('#movie_player video'); if (v && v.paused) v.play().catch(() => {});
+    }
+    const p = document.getElementById('movie_player');
+    const pr = p && p.getPlayerResponse && p.getPlayerResponse();
+    const err = pr && pr.playabilityStatus;
+    if (err && err.status === 'UNPLAYABLE' && JSON.stringify(err.errorScreen || {}).includes('answer/3037019') && !p.__alalamyRetry) {
+      p.__alalamyRetry = 1;
+      try { p.loadVideoById(pr.videoDetails.videoId, (pr.playerConfig && pr.playerConfig.playbackStartConfig && pr.playerConfig.playbackStartConfig.startSeconds) || 0); } catch (e) {}
+      setTimeout(() => { p.__alalamyRetry = 0; }, 8000);
+    }
+  };
+  setInterval(killWall, 700);
   let saved = null;
   setInterval(() => {
     const p = document.querySelector('#movie_player, .html5-video-player');
@@ -759,7 +816,8 @@ const YT_CSS = `#player-ads, #masthead-ad, ytd-ad-slot-renderer, ytd-in-feed-ad-
 ytd-promoted-sparkles-web-renderer, ytd-promoted-video-renderer, ytd-display-ad-renderer, ytd-companion-slot-renderer,
 ytd-action-companion-ad-renderer, ytd-statement-banner-renderer, ytd-rich-item-renderer:has(> #content > ytd-ad-slot-renderer),
 .ytp-ad-overlay-container, .ytp-ad-image-overlay, .ytp-ad-text-overlay, .video-ads.ytp-ad-module > .ytp-ad-player-overlay-layout__ad-info-container,
-ytm-promoted-sparkles-web-renderer, ytm-companion-ad-renderer, ytm-ad-slot-renderer, ad-slot-renderer, ytm-promoted-video-renderer
+ytm-promoted-sparkles-web-renderer, ytm-companion-ad-renderer, ytm-ad-slot-renderer, ad-slot-renderer, ytm-promoted-video-renderer,
+tp-yt-paper-dialog:has(ytd-enforcement-message-view-model), ytd-enforcement-message-view-model
 { display: none !important; }`;
 if (/(^|\.)youtube\.com$/.test(location.hostname)) {
   let on = true;

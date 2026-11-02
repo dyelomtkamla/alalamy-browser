@@ -5,6 +5,26 @@ const {
   shell, dialog, nativeTheme, net, systemPreferences, webContents: allWebContents, desktopCapturer, WebContentsView
 } = require('electron');
 const path = require('path');
+// ---------- أمان: أوامر الواجهة (كلمات المرور، الإعدادات، العملاء، الملفات...) بتتقبل من واجهة المتصفح بس ----------
+// لو موقع قدر يتحكم في صفحته (ثغرة في كروميوم) مايقدرش يبعت الأوامر دي ويسحب الباسوردات أو يغير الإعدادات
+(() => {
+  const ui = path.join(__dirname, 'ui-preload.js');
+  let uiOnly = new Set();
+  try {
+    const src = require('fs').readFileSync(ui, 'utf8');
+    uiOnly = new Set([...src.matchAll(/(?:invoke|send|sendSync)\('([^']+)'/g)].map(m => m[1]));
+  } catch { /* ignore */ }
+  const uiBase = require('url').pathToFileURL(path.join(__dirname, 'ui') + path.sep).href;
+  const fromUI = (e) => {
+    let u = '';
+    try { u = (e.senderFrame && e.senderFrame.url) || e.sender.getURL(); } catch { /* ignore */ }
+    return typeof u === 'string' && u.startsWith(uiBase);
+  };
+  const origHandle = ipcMain.handle.bind(ipcMain), origOn = ipcMain.on.bind(ipcMain);
+  ipcMain.handle = (ch, fn) => origHandle(ch, uiOnly.has(ch) ? (e, ...a) => { if (!fromUI(e)) throw new Error('blocked'); return fn(e, ...a); } : fn);
+  ipcMain.on = (ch, fn) => origOn(ch, uiOnly.has(ch) ? (e, ...a) => { if (!fromUI(e)) { try { e.returnValue = null; } catch { /* ignore */ } return; } return fn(e, ...a); } : fn);
+  ipcMain.__uiOnly = uiOnly;
+})();
 const downloader = require('./downloader');
 const fs = require('fs');
 const extensions = require('./extensions');
@@ -84,6 +104,8 @@ function defaultSettings() {
     homepage: 'alalamy://newtab',
     searchEngine: 'google',
     adblock: true,
+    // false = مانع الإعلانات على يوتيوب بس (الافتراضي). true = كمان على باقي المواقع (منصات ميتا مستثناة دايماً)
+    adblockAll: false,
     adAllow: [],
     restoreTabs: false,
     sleepMinutes: 30,
@@ -150,6 +172,14 @@ function loadStore() {
   store.passwords = readJSON('passwords.json', []);
   store.downloads = readJSON('downloads.json', []);
   store.settings = Object.assign(defaultSettings(), readJSON('settings.json', {}));
+  // 1.19.0: مانع الإعلانات بقى على يوتيوب بس وبيشتغل تلقائي. لو كان متقفل أو يوتيوب متسابله قبل كده، يرجع يشتغل مرة واحدة
+  if (!store.settings.adblockYtOnlyV1) {
+    store.settings.adblockYtOnlyV1 = true;
+    store.settings.adblock = true;
+    store.settings.adblockAll = false;
+    store.settings.adAllow = (store.settings.adAllow || []).filter(d => !/(^|\.)(youtube\.com|youtube-nocookie\.com|youtu\.be)$/.test(d));
+    try { writeJSON('settings.json', store.settings, true); } catch { /* ignore */ }
+  }
   nativeTheme.themeSource = store.settings.theme;
   loadSessions();
 }
@@ -386,8 +416,8 @@ function sendUI(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 const isIncognitoWin = (w) => !!(w && w.__incognito);
-/* نافذة العميل: جلستين بس، النافذة الرئيسية (حسابك) ونافذة عميل واحدة.
-   التبديل لعميل تاني بيبدّل نفس نافذة العميل له، وتبويبات العميل اللي قبله بتتحفظ وترجع لما تختاره تاني. */
+/* نوافذ العملاء: كل عميل له نافذة وجلسة لوحده (persist:c_<id>)، وتقدر تفتح عميل 1 و2 و3 و4... مع النافذة الرئيسية في نفس الوقت.
+   لما تقفل نافذة عميل، تبويباته بتتحفظ وترجع لما تفتحه تاني. */
 const CLIENT_ID_RE = /^c_[a-z0-9]{4,20}$/;
 const isClientWin = (w) => !!(w && w.__client);
 // نافذة محفوظة كل تبويباتها لعميل واحد = نافذة العميل ده
@@ -416,22 +446,6 @@ function takeClientMem(id) {
   return m && Array.isArray(m.tabs) && m.tabs.length ? m : null;
 }
 function showWin(w) { if (w.isMinimized()) w.restore(); w.show(); w.focus(); }
-// نافذة العميل الوحيدة تتبدل لعميل تاني: تبويبات العميل الحالي تتحفظ، وتتفتح تبويبات الجديد
-function swapClientWindow(w, id, { only = null, tabs = null } = {}) {
-  const prev = w.__client;
-  const snap = windowSnapshot(w);
-  if (prev && snap) rememberClientTabs(prev, snap);
-  live.delete(w.id);
-  const mem = takeClientMem(id);
-  const all = [...(mem ? mem.tabs : []), ...(tabs || [])];
-  w.__client = id;
-  w.__restore = all.length ? { tabs: all, active: mem ? mem.active : 0, client: id, bounds: snap && snap.bounds, maximized: snap && snap.maximized } : null;
-  w.__openSites = { only };
-  w.setTitle(`${clientName(id)} - متصفح العالمي`);
-  w.loadFile(path.join(__dirname, 'ui', 'index.html'), { query: { client: id } });
-  showWin(w);
-  return w;
-}
 function openClientWindow(id, { only = null, tabs = null } = {}) {
   if (!CLIENT_ID_RE.test(id || '') || !(store.clients || []).some(c => c.id === id)) return null;
   const existing = clientWindowOf(id);
@@ -440,8 +454,6 @@ function openClientWindow(id, { only = null, tabs = null } = {}) {
     existing.webContents.send('client:open-sites', { only, tabs });
     return existing;
   }
-  const other = [...windows].find(w => !w.isDestroyed() && w.__client);
-  if (other) return swapClientWindow(other, id, { only, tabs });
   const mem = takeClientMem(id);
   const all = [...(mem ? mem.tabs : []), ...(tabs || [])];
   const restore = all.length ? { tabs: all, active: mem ? mem.active : 0, client: id } : null;
@@ -479,12 +491,10 @@ function onScreen(b) {
 function createWindow({ incognito = false, url = null, restore = null, clientId = null, openSites = null } = {}) {
   if (!incognito && !clientId) clientId = clientOfRestore(restore);
   if (clientId && !(store.clients || []).some(c => c.id === clientId)) clientId = null;
-  // نافذة عميل واحدة بس: لو فيه واحدة مفتوحة، تبويبات العميل ده تتحفظ لحد ما تختاره
-  if (clientId && [...windows].some(x => !x.isDestroyed() && x.__client)) {
-    if (restore && restore.tabs && restore.tabs.length && !takeClientMem(clientId)) rememberClientTabs(clientId, restore);
+  // نافذة واحدة لكل عميل: لو نافذته مفتوحة نرجعلها
+  if (clientId) {
     const cw = clientWindowOf(clientId);
-    if (cw) { showWin(cw); return cw; }
-    return [...windows].find(x => !x.isDestroyed() && x.__client);
+    if (cw) { showWin(cw); if (restore && restore.tabs && restore.tabs.length) cw.webContents.send('client:open-sites', { only: null, tabs: restore.tabs }); return cw; }
   }
   const saved = readJSON('window.json', { width: 1300, height: 850 });
   const bounds = { width: saved.width || 1300, height: saved.height || 850 };
@@ -563,7 +573,10 @@ function setupWindow(win, incognito) {
     // الـ preload يشتغل كمان جوه الإطارات الداخلية علشان حماية مفاتيح المرور (فيسبوك/ميتا بتطلبها من iframe)
     webPreferences.nodeIntegrationInSubFrames = true;
     webPreferences.contextIsolation = true;
-    webPreferences.sandbox = false;
+    // أمان: كل المواقع بتشتغل في sandbox زي كروم، فلو موقع استغل ثغرة في المتصفح مايوصلش للجهاز
+    webPreferences.sandbox = true;
+    webPreferences.webSecurity = true;
+    webPreferences.allowRunningInsecureContent = false;
     const partition = params.partition || 'persist:default';
     if (!PARTITION_RE.test(partition)) params.partition = 'persist:default';
     setupSession(params.partition);
@@ -628,6 +641,14 @@ ipcMain.on('bgaudio:on', (e) => { e.returnValue = store.settings.backgroundAudio
 ipcMain.on('page:mouse-nav', (e, dir) => { if (dir === 'back' || dir === 'forward') sendTo(e.sender, 'shortcut', dir); });
 ipcMain.on('page:shortcut', (e, action) => {
   if (typeof action === 'string' && PAGE_FIRST.has(action)) sendTo(e.sender, 'shortcut', action);
+});
+// من الصفحة (sandbox): الزرار اللي الصفحة ماستخدمتهوش، والعملية الرئيسية تحدد الاختصار
+ipcMain.on('page:shortcut-key', (e, input) => {
+  if (!input || typeof input !== 'object') return;
+  const action = shortcutAction({ control: !!input.control, meta: !!input.meta, shift: !!input.shift, alt: !!input.alt,
+    key: String(input.key || '').slice(0, 20), code: String(input.code || '').slice(0, 30) });
+  if (!action || !PAGE_FIRST.has(action) || (action === 'open-menu' && input.repeat)) return;
+  sendTo(e.sender, 'shortcut', action);
 });
 
 function textFragmentURL(pageURL, text) {
@@ -706,12 +727,12 @@ function setupGuest(guest) {
     // Tag Assistant بتاع جوجل، ومعاينة بلوجر. التبويب العادي بيقطع الربط ده فكانت بتلف ومش بتحفظ.
     if (keepsOpener(details, guest)) {
       return { action: 'allow', outlivesOpener: true, overrideBrowserWindowOptions: { width: 1280, height: 860, show: true, autoHideMenuBar: true,
-        backgroundColor: '#ffffff', webPreferences: { partition, contextIsolation: true, nodeIntegration: false } } };
+        backgroundColor: '#ffffff', webPreferences: { partition, contextIsolation: true, nodeIntegration: false, sandbox: true } } };
     }
     if (disposition === 'new-window' && /^https?:/.test(url)) {
       // نوافذ منبثقة حقيقية (مثل نوافذ تسجيل الدخول OAuth) تبقى منبثقة بنفس الجلسة
       return { action: 'allow', overrideBrowserWindowOptions: { width: 600, height: 720,
-        webPreferences: { partition, contextIsolation: true, nodeIntegration: false } } };
+        webPreferences: { partition, contextIsolation: true, nodeIntegration: false, sandbox: true } } };
     }
     if (url === 'about:blank' && disposition === 'new-window') return { action: 'allow' };
     if (url === 'about:blank') {
@@ -720,7 +741,7 @@ function setupGuest(guest) {
       let from = ''; try { from = new URL(guest.getURL()).hostname; } catch { /* ignore */ }
       pendingBlank.push({ partition, background: disposition === 'background-tab', keepPreview: /(^|\.)blogger\.com$/i.test(from) });
       return { action: 'allow', overrideBrowserWindowOptions: { show: false,
-        webPreferences: { partition, contextIsolation: true, nodeIntegration: false } } };
+        webPreferences: { partition, contextIsolation: true, nodeIntegration: false, sandbox: true } } };
     }
     // بس روابط الويب: مانفتحش file:// أو بروتوكولات غريبة من صفحة
     if (/^(https?:|about:blank$)/i.test(url)) sendTo(guest, 'open-tab', { url, partition, background: disposition === 'background-tab' });
@@ -919,6 +940,10 @@ const pendingPw = new Map();
 
 ipcMain.on('pw:capture', (e, data) => {
   if (!data || typeof data.password !== 'string' || !data.password || typeof data.origin !== 'string') return;
+  // الأصل لازم يكون أصل الإطار اللي بعت فعلاً (مايقدرش إطار يحفظ باسورد باسم موقع تاني)
+  const frameOrigin = safeOrigin((e.senderFrame && e.senderFrame.url) || e.sender.getURL());
+  if (data.origin !== frameOrigin || !/^https?:/.test(frameOrigin)) return;
+  if (data.password.length > 1000) return;
   const partition = partitionOfWebContents(e.sender) || 'persist:default';
   if (partition.startsWith('temp_')) return; // لا نحفظ شيئاً في التبويبات المؤقتة
   const username = String(data.username || '').slice(0, 200);
@@ -1674,6 +1699,7 @@ ipcMain.handle('settings:save', (_e, s) => {
     if (typeof s.homepage === 'string') store.settings.homepage = s.homepage.slice(0, 500);
     if (allowedEngines.includes(s.searchEngine)) store.settings.searchEngine = s.searchEngine;
     if (typeof s.adblock === 'boolean') store.settings.adblock = s.adblock;
+    if (typeof s.adblockAll === 'boolean') store.settings.adblockAll = s.adblockAll;
     if (typeof s.restoreTabs === 'boolean') store.settings.restoreTabs = s.restoreTabs;
     if ([0, 10, 30, 60, 180].includes(s.sleepMinutes)) store.settings.sleepMinutes = s.sleepMinutes;
     if (typeof s.siteLang === 'string' && /^([a-zA-Z]{2,3}(-[a-zA-Z]{2,4})?|auto)$/.test(s.siteLang) && s.siteLang !== store.settings.siteLang) {
@@ -1933,8 +1959,17 @@ app.whenReady().then(() => {
         result.encryptionAvailable = safeStorage.isEncryptionAvailable();
         result.userAgent = pageUA;
         // مانع الإعلانات: لازم يمنع إعلان جوجل ويسيب سكربت عادي
-        const probe = (url) => { let hit = false; adblock.onBeforeRequest({ url, resourceType: 'script', referrer: 'https://www.youm7.com/' }, () => { hit = true; }); return hit; };
-        result.adblock = probe('https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js') && !probe('https://www.youm7.com/js/main.js');
+        // مانع الإعلانات: شغال على يوتيوب بس افتراضياً، ومقفول في المواقع التانية ومنصات ميتا
+        const probe = (url, page) => { let hit = false; adblock.onBeforeRequest({ url, resourceType: 'script', referrer: page || 'https://www.youm7.com/' }, () => { hit = true; }); return hit; };
+        const ad = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js';
+        const ytOn = adblock.activeFor('https://www.youtube.com/watch?v=x') && adblock.activeFor('https://m.youtube.com/');
+        const othersOff = !adblock.activeFor('https://www.youm7.com/') && !probe(ad);
+        const prev = store.settings.adblockAll;
+        store.settings.adblockAll = true;
+        const allMode = probe(ad) && !probe('https://www.youm7.com/js/main.js') && !adblock.activeFor('https://www.facebook.com/') && !adblock.activeFor('https://web.whatsapp.com/') && !adblock.activeFor('https://www.instagram.com/');
+        store.settings.adblockAll = prev;
+        result.adblockDetail = { ytOn, othersOff, allMode };
+        result.adblock = ytOn && othersOff && allMode;
         result.ok = result.ok && result.cookieIsolation && result.passwordRoundTrip && result.adblock;
         console.log('SMOKE_RESULT ' + JSON.stringify(result));
         app.exit(result && result.ok ? 0 : 1);

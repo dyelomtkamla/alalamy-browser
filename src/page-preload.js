@@ -1,6 +1,8 @@
 'use strict';
 // يعمل داخل كل صفحة ويب (معزول): التقاط كلمات المرور عند تسجيل الدخول وتعبئتها تلقائياً
 const { ipcRenderer } = require('electron');
+// في الـ sandbox ممكن process.isMainFrame مايكونش موجود
+const IS_MAIN_FRAME = typeof process.isMainFrame === 'boolean' ? process.isMainFrame : (() => { try { return window.top === window; } catch { return false; } })();
 
 const USER_KEY = '__alalamy_last_user';
 
@@ -127,7 +129,7 @@ const BG_AUDIO = `(() => {
   } catch (e) {}
 })();`;
 try {
-  if (process.isMainFrame && ipcRenderer.sendSync('bgaudio:on')) {
+  if (IS_MAIN_FRAME && ipcRenderer.sendSync('bgaudio:on')) {
     const { contextBridge, webFrame } = require('electron');
     if (contextBridge.executeInMainWorld) contextBridge.executeInMainWorld({ func: new Function(BG_AUDIO) });
     else webFrame.executeJavaScript(BG_AUDIO);
@@ -136,7 +138,7 @@ try {
 
 // الإطارات الداخلية (iframe) محتاجة الحماية دي بس: فيسبوك بيطلب مفتاح المرور من إطار مخفي تبع accounts.meta.com
 // باقي الملف (حفظ الباسورد، الفيديو، الاختصارات...) للصفحة الرئيسية فقط
-if (!process.isMainFrame) return;
+if (!IS_MAIN_FRAME) return;
 
 function visible(el) {
   const r = el.getBoundingClientRect();
@@ -775,20 +777,17 @@ if (/(^|\.)youtube\.com$/.test(location.hostname)) {
 
 // ---------- اختصارات كروم اللي الصفحة ليها الأولوية فيها (Ctrl+F، Ctrl+S، Ctrl+U...) ----------
 // لو الصفحة نفسها ماستخدمتش الاختصار (preventDefault) المتصفح بينفذه، زي كروم بالظبط
-try {
-  const { shortcutAction, PAGE_FIRST } = require('./shortcuts');
-  window.addEventListener('keydown', (e) => {
-    if (!e.isTrusted) return;
-    const action = shortcutAction({ control: e.ctrlKey, meta: e.metaKey, shift: e.shiftKey, alt: e.altKey, key: e.key, code: e.code });
-    if (!action || !PAGE_FIRST.has(action)) return;
-    // نستنى لحد ما كل أكواد الصفحة تخلص
-    setTimeout(() => {
-      if (e.defaultPrevented) return;
-      if (action === 'open-menu' && e.repeat) return;
-      ipcRenderer.send('page:shortcut', action);
-    }, 0);
-  }, true);
-} catch { /* ignore */ }
+// الصفحة بتشتغل في sandbox (مفيش require لملفات)، فالعملية الرئيسية هي اللي بتحدد الاختصار
+window.addEventListener('keydown', (e) => {
+  if (!e.isTrusted) return;
+  if (!(e.ctrlKey || e.metaKey || e.altKey || /^(F\d{1,2}|Escape)$/.test(e.key))) return;
+  const input = { control: e.ctrlKey, meta: e.metaKey, shift: e.shiftKey, alt: e.altKey, key: e.key, code: e.code, repeat: e.repeat };
+  // نستنى لحد ما كل أكواد الصفحة تخلص
+  setTimeout(() => {
+    if (e.defaultPrevented) return;
+    ipcRenderer.send('page:shortcut-key', input);
+  }, 0);
+}, true);
 
 // ---------- زراير الماوس الجانبية: رجوع / تقدم (ولو الصفحة اتفتحت من الرئيسية، الرجوع بيوديك للرئيسية) ----------
 window.addEventListener('mouseup', (e) => {

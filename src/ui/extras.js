@@ -211,9 +211,15 @@ function applySidebar() {
 function adHost(url) {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
 }
+const AD_YT = /(^|\.)(youtube\.com|youtube-nocookie\.com|youtubekids\.com)$/;
+const AD_META = /(^|\.)(facebook\.com|fb\.com|instagram\.com|whatsapp\.com|messenger\.com|threads\.net|threads\.com|meta\.com)$/;
 function adSiteAllowed(url) {
   const h = adHost(url);
-  return !!h && (state.settings.adAllow || []).some(d => h === d || h.endsWith('.' + d));
+  if (!h) return false;
+  if ((state.settings.adAllow || []).some(d => h === d || h.endsWith('.' + d))) return true;
+  // الافتراضي: المانع على يوتيوب بس، ومنصات ميتا مستثناة دايماً
+  if (AD_YT.test(h)) return false;
+  return state.settings.adblockAll !== true || AD_META.test(h);
 }
 async function refreshAdBadge() {
   const t = state.active;
@@ -237,11 +243,14 @@ async function showAdMenu() {
   const allowed = host && adSiteAllowed(t.url);
   const head = el('div', { class: 'admenu-head' },
     el('b', {}, globalOn && !allowed ? 'مانع الإعلانات شغال' : 'مانع الإعلانات مقفول'),
-    el('div', {}, host ? `اتمنع ${s.tab} إعلان ومتتبع في ${host}` : 'بيمنع إعلانات يوتيوب والمواقع والمتتبعات'),
+    el('div', {}, host && globalOn && !allowed ? `اتمنع ${s.tab} إعلان ومتتبع في ${host}` : 'بيمنع إعلانات يوتيوب تلقائي'),
     el('div', {}, `المجموع من أول ما فتحت المتصفح: ${s.blocked}`));
   m.append(head, el('hr'));
   const reload = () => { if (t && t.webview) t.webview.reload(); };
-  if (host && globalOn) {
+  const autoOff = host && !(state.settings.adAllow || []).some(d => host === d || host.endsWith('.' + d)) && adSiteAllowed(t.url);
+  if (autoOff) {
+    m.append(el('div', { class: 'mhint', style: 'margin:4px 16px 6px;color:var(--muted);line-height:1.6;font-size:12px' }, AD_META.test(host) ? 'المانع مقفول دايماً في منصات ميتا علشان مايعطلهاش.' : 'المانع شغال على يوتيوب بس. تقدر تشغّله في كل المواقع من الزرار اللي تحت.'));
+  } else if (host && globalOn) {
     m.append(el('button', { onclick: async () => {
       state.settings = await api.adblockAllow(t.url, !allowed);
       hidePopups(); reload(); refreshAdBadge();
@@ -251,7 +260,15 @@ async function showAdMenu() {
   m.append(el('button', { onclick: async () => {
     state.settings = await api.saveSettings({ adblock: !globalOn });
     hidePopups(); reload(); refreshAdBadge();
-  } }, globalOn ? 'إيقاف مانع الإعلانات في كل المواقع' : '🛡 تشغيل مانع الإعلانات'));
+  } }, globalOn ? 'إيقاف مانع الإعلانات خالص (حتى يوتيوب)' : '🛡 تشغيل مانع الإعلانات'));
+  if (globalOn) {
+    const all = state.settings.adblockAll === true;
+    m.append(el('button', { onclick: async () => {
+      state.settings = await api.saveSettings({ adblockAll: !all });
+      hidePopups(); reload(); refreshAdBadge();
+      toast(all ? 'المانع رجع على يوتيوب بس' : 'المانع شغال في كل المواقع (ما عدا منصات ميتا)');
+    } }, all ? '▶ خلي المانع على يوتيوب بس' : '🌐 شغّل المانع في كل المواقع (ما عدا ميتا)'));
+  }
   m.append(el('button', { onclick: async () => {
     hidePopups();
     toast('بنحدّث قوايم الإعلانات...');

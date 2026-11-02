@@ -78,10 +78,17 @@ function siteAllowed(pageUrl) {
 /** شغال على الصفحة دي ولا لأ (الإعداد عام + الموقع مش في قايمة المسموح). */
 // صفحات تسجيل الدخول بتاعة جوجل: مانع الإعلانات لو منع أي سكربت فيها (زي فحص الأمان) جوجل بترفض الدخول
 const LOGIN_PAGE = /^https:\/\/(accounts\.google\.[a-z.]+|accounts\.youtube\.com|myaccount\.google\.com|gds\.google\.com)\//;
-const YT_PAGE = /^https:\/\/([a-z0-9-]+\.)*(youtube\.com|youtube-nocookie\.com)\//i;
+const YT_PAGE = /^https:\/\/([a-z0-9-]+\.)*(youtube\.com|youtube-nocookie\.com|youtubekids\.com)\//i;
+// منصات ميتا ومنصات الإعلانات: المانع مابيشتغلش فيها أبداً علشان مايبوظش تسجيل الدخول والرسايل والبيكسلات
+const NEVER_HOST = /(^|\.)(facebook\.com|fb\.com|fbcdn\.net|facebook\.net|instagram\.com|cdninstagram\.com|whatsapp\.com|whatsapp\.net|messenger\.com|threads\.net|threads\.com|meta\.com|oculus\.com)$/i;
+function isYouTube(pageUrl) { return YT_PAGE.test(pageUrl || ''); }
 function activeFor(pageUrl) {
   if (LOGIN_PAGE.test(pageUrl || '')) return false;
-  return !!engine && settings().adblock !== false && /^https?:/.test(pageUrl || '') && !siteAllowed(pageUrl);
+  if (!engine || settings().adblock === false || !/^https?:/.test(pageUrl || '') || siteAllowed(pageUrl)) return false;
+  // الافتراضي: يوتيوب بس. باقي المواقع لو المستخدم شغّل «كل المواقع» (وميتا مستثناة دايماً)
+  if (isYouTube(pageUrl)) return true;
+  if (settings().adblockAll !== true) return false;
+  return !NEVER_HOST.test(hostOf(pageUrl));
 }
 
 function pageUrlOf(details) {
@@ -156,4 +163,4 @@ function stats(wcId) {
   return { blocked: total, tab: perTab.get(wcId) || 0 };
 }
 
-module.exports = { init, attach, onBeforeRequest, activeFor, siteAllowed, hostOf, stats, update, load, PRELOAD };
+module.exports = { init, attach, onBeforeRequest, activeFor, isYouTube, siteAllowed, hostOf, stats, update, load, PRELOAD };

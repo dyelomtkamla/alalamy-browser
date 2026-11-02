@@ -30,7 +30,7 @@ struct BrowserScreen: View {
                     .padding(.horizontal, 14).frame(height: 40)
                     .background(Capsule().fill(Color(.secondarySystemBackground)))
                     .onSubmit { model.go(editing); focused = false }
-                Button { model.isLoading ? model.webView.stopLoading() : model.webView.reload() } label: {
+                Button { if model.isLoading { model.webView.stopLoading() } else { _ = model.webView.reload() } } label: {
                     Image(systemName: model.isLoading ? "xmark" : "arrow.clockwise")
                 }.frame(width: 36)
             }

@@ -1,0 +1,41 @@
+/* تخطي إعلانات يوتيوب (نفس كود نسخة الكمبيوتر) */
+(() => {
+  if (window.__alalamyYT) return; window.__alalamyYT = 1;
+  const KEYS = ['adPlacements', 'playerAds', 'adSlots', 'adBreakHeartbeatParams'];
+  const clean = (o) => {
+    if (!o || typeof o !== 'object') return o;
+    for (const k of KEYS) if (k in o) { try { delete o[k]; } catch (e) {} }
+    if (o.playerResponse) clean(o.playerResponse);
+    if (Array.isArray(o)) for (const x of o) if (x && x.playerResponse) clean(x.playerResponse);
+    return o;
+  };
+  const hasAds = (o) => o && typeof o === 'object' && (o.adPlacements || o.playerAds || o.adSlots || o.playerResponse || Array.isArray(o));
+  const jp = JSON.parse;
+  JSON.parse = function () { const r = jp.apply(this, arguments); try { if (hasAds(r)) clean(r); } catch (e) {} return r; };
+  const rj = Response.prototype.json;
+  Response.prototype.json = function () { return rj.call(this).then((r) => { try { if (hasAds(r)) clean(r); } catch (e) {} return r; }); };
+  let ipr;
+  try { Object.defineProperty(window, 'ytInitialPlayerResponse', { configurable: true, get() { return ipr; }, set(v) { ipr = clean(v); } }); } catch (e) {}
+  let saved = null;
+  setInterval(() => {
+    const p = document.querySelector('#movie_player, .html5-video-player');
+    const v = p && p.querySelector('video');
+    if (!v) return;
+    if (p.classList.contains('ad-showing') || p.classList.contains('ad-interrupting')) {
+      if (!saved) saved = { muted: v.muted, rate: v.playbackRate };
+      v.muted = true;
+      try { v.playbackRate = 16; } catch (e) {}
+      if (isFinite(v.duration) && v.duration > 0 && v.currentTime < v.duration - 0.1) v.currentTime = v.duration - 0.05;
+      const b = document.querySelector('.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-slot button, .ytp-ad-skip-button-container button');
+      if (b) b.click();
+    } else if (saved) {
+      v.muted = saved.muted; v.playbackRate = saved.rate || 1; saved = null;
+    }
+  }, 250);
+})();
+(() => {
+  if (document.getElementById('__alalamy_yt')) return;
+  const s = document.createElement('style'); s.id = '__alalamy_yt';
+  s.textContent = '#player-ads, #masthead-ad, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer, ytd-banner-promo-renderer, ytd-promoted-sparkles-web-renderer, ytd-promoted-video-renderer, ytd-display-ad-renderer, ytd-companion-slot-renderer, ytd-action-companion-ad-renderer, ytd-statement-banner-renderer, ytd-rich-item-renderer:has(> #content > ytd-ad-slot-renderer), .ytp-ad-overlay-container, .ytp-ad-image-overlay, .ytp-ad-text-overlay, .video-ads.ytp-ad-module > .ytp-ad-player-overlay-layout__ad-info-container, ytm-promoted-sparkles-web-renderer, ytm-companion-ad-renderer, ytm-ad-slot-renderer, ad-slot-renderer, ytm-promoted-video-renderer { display: none !important; }';
+  (document.head || document.documentElement).appendChild(s);
+})();

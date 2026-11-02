@@ -156,6 +156,13 @@ function init(getSettings) {
   ipcMain.handle('@ghostery/adblocker/is-mutation-observer-enabled', () => false);
   // صفحة يوتيوب بتسأل هل تشغّل تخطي الإعلانات
   ipcMain.on('adblock:active', (e, url) => { e.returnValue = activeFor(url); });
+  // يوتيوب: الإعلانات بتتخطّى وتستخبى جوه الصفحة (مش بتتمنع من الشبكة)، فالصفحة بتبلّغ بعددها للعدّاد
+  ipcMain.on('adblock:yt-count', (e, n) => {
+    n = Math.max(0, Math.min(50, Number(n) || 0));
+    if (!n || !isYouTube(e.sender.getURL()) || !activeFor(e.sender.getURL())) return;
+    total += n;
+    perTab.set(e.sender.id, (perTab.get(e.sender.id) || 0) + n);
+  });
   const tryUpdate = () => update().catch(e => console.log('adblock update failed:', e.message));
   setTimeout(tryUpdate, 60 * 1000);
   setInterval(tryUpdate, 6 * 3600 * 1000);

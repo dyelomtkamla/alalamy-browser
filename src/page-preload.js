@@ -797,6 +797,18 @@ if (/(^|\.)youtube\.com$/.test(location.hostname)) {
       (document.head || document.documentElement).appendChild(st);
     };
     if (document.documentElement) addCss(); else window.addEventListener('DOMContentLoaded', addCss);
+    // عدّاد الدرع: كل إعلان فيديو اتخطّى + كل مكان إعلان اتخفى في الصفحة
+    const seen = new WeakSet();
+    let inAd = false;
+    setInterval(() => {
+      let n = 0;
+      const p = document.querySelector('#movie_player');
+      const ad = !!(p && (p.classList.contains('ad-showing') || p.classList.contains('ad-interrupting')));
+      if (ad && !inAd) n++;
+      inAd = ad;
+      try { for (const x of document.querySelectorAll(YT_CSS.replace(/\{[^}]*\}/, ''))) if (!seen.has(x)) { seen.add(x); n++; } } catch { /* ignore */ }
+      if (n) ipcRenderer.send('adblock:yt-count', Math.min(n, 50));
+    }, 1000);
   }
 }
 

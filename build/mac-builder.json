@@ -1,0 +1,24 @@
+{
+  "extends": null, "publish": [],
+  "appId": "com.alalamy.browser",
+  "productName": "AlalamyBrowser",
+  "copyright": "© 2026 Ahmed Gamal Elshafey. جميع الحقوق محفوظة",
+  "files": ["src/**/*", "package.json"],
+  "directories": { "buildResources": "build", "output": "dist-mac" },
+  "mac": {
+    "target": [{ "target": "zip", "arch": ["arm64", "x64"] }],
+    "icon": "build/icon.png",
+    "category": "public.app-category.productivity",
+    "identity": null,
+    "hardenedRuntime": false,
+    "gatekeeperAssess": false,
+    "artifactName": "AlalamyBrowser-mac-${arch}-${version}.${ext}",
+    "extraResources": [{ "from": "vendor/mac-${arch}", "to": "vendor" }],
+    "extendInfo": {
+      "CFBundleDisplayName": "متصفح العالمي",
+      "NSMicrophoneUsageDescription": "علشان البحث بالصوت والمواقع اللي بتطلب المايك",
+      "NSCameraUsageDescription": "للمواقع اللي بتطلب الكاميرا"
+    }
+  },
+  "protocols": [{ "name": "Web", "schemes": ["http", "https"], "role": "Viewer" }]
+}

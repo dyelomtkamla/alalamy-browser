@@ -1,0 +1,57 @@
+# يبني نسخة الماك (Apple Silicon + Intel) ويرفعها في نفس إصدار ويندوز.
+# النسخة غير موثّقة من Apple: أول مرة كليك يمين ← Open.
+name: macOS build
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ['Windows installer']
+    types: [completed]
+permissions:
+  contents: write
+jobs:
+  build:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - name: Download yt-dlp, ffmpeg and deno
+        run: |
+          set -e
+          for a in arm64 x64; do mkdir -p vendor/mac-$a; curl -sSLf -o vendor/mac-$a/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos; done
+          curl -sSLf -o d1.zip https://github.com/denoland/deno/releases/latest/download/deno-aarch64-apple-darwin.zip && unzip -qo d1.zip -d vendor/mac-arm64
+          curl -sSLf -o d2.zip https://github.com/denoland/deno/releases/latest/download/deno-x86_64-apple-darwin.zip && unzip -qo d2.zip -d vendor/mac-x64
+          for t in ffmpeg ffprobe; do
+            curl -sSLf https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/$t-darwin-arm64.gz | gunzip > vendor/mac-arm64/$t
+            curl -sSLf https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/$t-darwin-x64.gz | gunzip > vendor/mac-x64/$t
+          done
+          chmod +x vendor/mac-*/*
+      - name: Build apps
+        run: npx electron-builder --mac dir --arm64 --x64 --config build/mac-builder.json --publish never
+      - name: Ad-hoc sign and zip
+        run: |
+          set -e
+          echo "VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_ENV
+          codesign --force --deep -s - dist-mac/mac-arm64/AlalamyBrowser.app
+          codesign --force --deep -s - dist-mac/mac/AlalamyBrowser.app
+          ditto -c -k --keepParent dist-mac/mac-arm64/AlalamyBrowser.app AlalamyBrowser-mac-AppleSilicon.zip
+          ditto -c -k --keepParent dist-mac/mac/AlalamyBrowser.app AlalamyBrowser-mac-Intel.zip
+      - name: Smoke test (Apple Silicon)
+        run: |
+          app=dist-mac/mac-arm64/AlalamyBrowser.app/Contents/MacOS/AlalamyBrowser
+          ( "$app" --smoke-test > smoke.txt 2>&1; echo "exit=$?" >> smoke.txt ) &
+          pid=$!
+          for i in $(seq 1 180); do kill -0 $pid 2>/dev/null || break; sleep 1; done
+          kill -0 $pid 2>/dev/null && { pkill -f AlalamyBrowser || true; tail -40 smoke.txt; echo "smoke test timed out"; exit 1; }
+          grep SMOKE_RESULT smoke.txt || true
+          tail -1 smoke.txt | grep -q 'exit=0' || { tail -40 smoke.txt; exit 1; }
+      - name: Publish to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v$VERSION"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "متصفح العالمي $VERSION" --notes "متصفح العالمي $VERSION"
+          gh release upload "$tag" AlalamyBrowser-mac-AppleSilicon.zip AlalamyBrowser-mac-Intel.zip --clobber

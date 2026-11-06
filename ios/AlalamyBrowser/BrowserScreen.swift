@@ -15,6 +15,17 @@ struct BrowserScreen: View {
     @State private var editing = ""
     @FocusState private var focused: Bool
     @State private var showShare = false
+    @State private var showHistory = false
+    @State private var showDownloads = false
+    @State private var showQuran = false
+    @State private var showAddPlatform = false
+    @State private var spawned: SpawnedWindow?
+    @ObservedObject private var platforms = PlatformStore.shared
+
+    private func openPlatform(_ p: Platform) {
+        guard let u = URL(string: p.url), let m = model.spawn(u) else { return }
+        spawned = SpawnedWindow(model: m, title: p.name)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -51,6 +62,17 @@ struct BrowserScreen: View {
                 Button { showShare = true } label: { Image(systemName: "square.and.arrow.up") }
                 Spacer()
                 Menu {
+                    Menu {
+                        ForEach(PlatformStore.builtIn + platforms.custom) { p in
+                            Button(p.name) { openPlatform(p) }
+                        }
+                        Divider()
+                        Button { showAddPlatform = true } label: { Label("إضافة منصة", systemImage: "plus") }
+                    } label: { Label("المنصات (نافذة جديدة)", systemImage: "square.grid.2x2.fill") }
+                    Button { showHistory = true } label: { Label("السجل", systemImage: "clock.arrow.circlepath") }
+                    Button { showDownloads = true } label: { Label("تنزيلاتي", systemImage: "arrow.down.circle") }
+                    Button { showQuran = true } label: { Label("القرآن الكريم MP3", systemImage: "book.closed") }
+                    Divider()
                     Button { model.translate() } label: { Label("ترجمة الصفحة للعربية", systemImage: "globe") }
                     Button { model.toggleDesktop() } label: {
                         Label(model.desktopMode ? "وضع الموبايل" : "وضع سطح المكتب", systemImage: "desktopcomputer")
@@ -84,8 +106,25 @@ struct BrowserScreen: View {
         .sheet(isPresented: $showShare) {
             if let u = model.webView.url { ShareSheet(items: [u]) }
         }
+        .sheet(isPresented: $showHistory) { HistoryView { model.load($0) } }
+        .sheet(isPresented: $showDownloads) { DownloadsView() }
+        .sheet(isPresented: $showQuran) { QuranView() }
+        .sheet(isPresented: $showAddPlatform) { AddPlatformView() }
+        .fullScreenCover(item: $spawned) { w in
+            BrowserScreen(model: w.model, name: name, color: color)
+        }
+        // اختصارات كيبورد الآيباد: ⌘Y السجل
+        .background {
+            Button("") { showHistory = true }.keyboardShortcut("y", modifiers: .command).opacity(0)
+        }
         .toolbar(.hidden, for: .navigationBar)
     }
+}
+
+struct SpawnedWindow: Identifiable {
+    let id = UUID()
+    let model: BrowserModel
+    let title: String
 }
 
 struct ShareSheet: UIViewControllerRepresentable {

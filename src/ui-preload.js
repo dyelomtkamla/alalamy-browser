@@ -3,7 +3,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const invoke = (ch) => (...args) => ipcRenderer.invoke(ch, ...args);
-const listeners = ['open-tab', 'shortcut', 'pw:prompt', 'downloads:update', 'translate-selection', 'select-tab-wc', 'close-tab-wc', 'window:state', 'video:open', 'video:sniffed', 'clients:changed', 'client:open-sites', 'session:restore', 'perm:prompt', 'af:prompt', 'ext:sidepanel', 'ext:sidepanel-close', 'devtools:open', 'i18n:changed'];
+const listeners = ['open-tab', 'shortcut', 'pw:prompt', 'downloads:update', 'translate-selection', 'select-tab-wc', 'close-tab-wc', 'window:state', 'video:open', 'video:sniffed', 'clients:changed', 'platforms:changed', 'client:open-sites', 'session:restore', 'perm:prompt', 'af:prompt', 'ext:sidepanel', 'ext:sidepanel-close', 'devtools:open', 'i18n:changed'];
 
 // شريط أزرار إضافات كروم <browser-action-list>
 try { require('electron-chrome-extensions/browser-action').injectBrowserAction(); } catch (err) { console.error(err); }
@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('api', {
   saveProfiles: invoke('profiles:save'),
   clearProfileData: invoke('profiles:clear-data'),
   saveClients: invoke('clients:save'),
+  savePlatforms: invoke('platforms:save'),
   removeClient: invoke('clients:remove'),
   googleAccounts: invoke('google:accounts'),
   topSites: invoke('topsites'),
@@ -36,6 +37,11 @@ contextBridge.exposeInMainWorld('api', {
   probeVideo: invoke('video:probe'),
   resolveVideo: invoke('video:resolve-tab'),
   downloadVideo: invoke('video:download'),
+  downloadThumb: invoke('downloads:thumb'),
+  quranReciters: invoke('quran:reciters'),
+  quranDownload: invoke('quran:download'),
+  clearDownloads: invoke('downloads:clear'),
+  openDownloadsFolder: invoke('downloads:open-folder'),
   videoTools: invoke('video:tools'),
   updateVideoTool: invoke('video:update'),
   resetSettings: invoke('settings:reset'),

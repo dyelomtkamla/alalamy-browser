@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src * data: crx:; media-src 'self' file: https: data: blob:; font-src 'self' file: data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src * data: crx: file:; media-src 'self' file: https: data: blob:; font-src 'self' file: data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
   <title>متصفح العالمي</title>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="learn.css">
@@ -84,6 +84,7 @@
   <div id="sidepanel" class="hidden"><header><span id="spTitle"></span><button id="spOpen" class="icon small2" data-icon="external" title="افتح في تبويب"></button><button id="spClose" class="icon small2" data-icon="close" title="إغلاق"></button></header><div id="spBody"></div></div>
   <div id="content">
     <div id="reader" class="hidden"></div>
+    <div id="historyPage" class="hidden"></div>
     <div id="settingsPage" class="hidden">
       <nav id="settingsSide">
         <div class="shead"><img src="icon.png" alt=""><span>الإعدادات</span></div>
@@ -153,6 +154,7 @@
     <button data-act="print"><i data-icon="print"></i>طباعة... <kbd>Ctrl+P</kbd></button>
     <button data-act="camera-reader"><i data-icon="camera"></i>قارئ الكاميرا والمايك (QR والعدسة)</button>
     <button data-act="voice-recorder"><i data-icon="mic"></i>مسجّل الصوت النقي (قرآن، غناء، فويس)</button>
+    <button data-act="quran"><i data-icon="reader"></i>مشغّل القرآن الكريم MP3</button>
     <button data-act="lens-page"><i data-icon="lens"></i>البحث في علامة التبويب هذه باستخدام "عدسة Google"</button>
     <button data-act="translate-ar"><i data-icon="translate"></i>ترجمة...</button>
     <button data-sub="findedit"><i data-icon="findpage"></i>بحث وتعديل</button>
@@ -223,6 +225,7 @@
       <button data-act="learn"><i data-icon="learn"></i>اتعلّم وانت بتتصفح (إعلانات وبرمجة) <kbd>Ctrl+Shift+L</kbd></button>
       <button data-act="download-video"><i data-icon="video"></i>تحميل فيديو أو صوت MP3 من الصفحة</button>
       <button data-act="voice-recorder"><i data-icon="mic"></i>مسجّل الصوت النقي من غير دوشة</button>
+      <button data-act="quran"><i data-icon="reader"></i>مشغّل القرآن الكريم MP3 (كل القرّاء)</button>
       <button data-act="import-passwords"><i data-icon="key"></i>استيراد كلمات المرور من جوجل</button>
       <button data-act="pip"><i data-icon="pip"></i>الفيديو في نافذة صغيرة</button>
       <button data-act="toggle-sidebar"><i data-icon="chat"></i>الشريط الجانبي (واتساب وماسنجر وتليجرام)</button>
@@ -255,6 +258,7 @@
   <script src="country.js"></script>
   <script src="renderer.js"></script>
   <script src="clients.js"></script>
+  <script src="history.js"></script>
   <script src="newtab.js"></script>
   <script src="features.js"></script>
   <script src="settings.js"></script>
@@ -272,5 +276,7 @@
   <script src="widgets.js"></script>
   <script src="edge.js"></script>
   <script src="polish.js"></script>
+  <script src="quran.js"></script>
+  <script src="closeall.js"></script>
 </body>
 </html>

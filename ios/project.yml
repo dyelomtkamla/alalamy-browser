@@ -10,12 +10,16 @@ targets:
     type: application
     platform: iOS
     sources: [AlalamyBrowser]
+    info:
+      path: Info.plist
+      properties:
+        UIBackgroundModes: [audio]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.alalamy.browser
         PRODUCT_NAME: AlalamyBrowser
-        MARKETING_VERSION: "1.2.0"
-        CURRENT_PROJECT_VERSION: "3"
+        MARKETING_VERSION: "1.3.0"
+        CURRENT_PROJECT_VERSION: "4"
         SWIFT_VERSION: "5.9"
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

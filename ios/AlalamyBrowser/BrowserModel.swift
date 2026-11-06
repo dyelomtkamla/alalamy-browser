@@ -17,9 +17,9 @@ final class BrowserModel: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     @Published var desktopMode = false
     @Published var adsAllowed = false
     private var observers: [NSKeyValueObservation] = []
-    private weak var store: AccountStore?
+    private(set) weak var store: AccountStore?
 
-    init(account: Account?, store: AccountStore, incognito: Bool = false) {
+    init(account: Account?, store: AccountStore, incognito: Bool = false, startURL: URL? = nil) {
         self.account = account
         self.incognito = incognito
         self.store = store
@@ -46,7 +46,7 @@ final class BrowserModel: NSObject, ObservableObject, WKNavigationDelegate, WKUI
             webView.observe(\.canGoForward) { [weak self] w, _ in Task { @MainActor in self?.canGoForward = w.canGoForward } },
             webView.observe(\.isLoading) { [weak self] w, _ in Task { @MainActor in self?.isLoading = w.isLoading } }
         ]
-        let home = account?.homeURL ?? URL(string: "https://duckduckgo.com/")!
+        let home = startURL ?? account?.homeURL ?? URL(string: "https://duckduckgo.com/")!
         refreshAdBlock(for: home, force: true)
         load(home)
     }
@@ -67,6 +67,17 @@ final class BrowserModel: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     }
 
     func load(_ url: URL) { webView.load(URLRequest(url: url)) }
+
+    /// نافذة جديدة على نفس الحساب (نفس الكوكيز والجلسة) — كل دوسة على منصة = نافذة جديدة
+    func spawn(_ url: URL) -> BrowserModel? {
+        guard let store else { return nil }
+        return BrowserModel(account: account, store: store, incognito: incognito, startURL: url)
+    }
+
+    // تسجيل الصفحة في السجل (مش في التصفح الخفي)
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        if !incognito { HistoryStore.shared.add(url: webView.url, title: webView.title ?? "") }
+    }
 
     func go(_ input: String) {
         guard let store else { return }

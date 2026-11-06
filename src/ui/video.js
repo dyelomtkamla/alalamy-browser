@@ -71,7 +71,7 @@ async function openVideoMenu({ url, candidates, partition, anchor, mp3 } = {}) {
   m.append(head);
   const start = async (choice) => {
     hideVideoMenu();
-    await api.downloadVideo({ url, partition, choice, title: info.title, useCookies: info.useCookies, referer, fileTitle });
+    await api.downloadVideo({ url, partition, choice, title: info.title, useCookies: info.useCookies, referer, fileTitle, thumbnail: info.thumbnail, duration: info.duration });
     toast(choice.kind === 'mp3' ? '🎵 بدأ تحميل الصوت MP3، تابعه من زرار التنزيلات ⬇' : '🎬 بدأ تحميل الفيديو، تابعه من زرار التنزيلات ⬇');
   };
   if (mp3 && info.hasAudio) return start({ kind: 'mp3' }); // زرار 🎵 MP3 اللي فوق الفيديو

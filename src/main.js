@@ -2,7 +2,7 @@
 // متصفح العالمي - العملية الرئيسية (Electron / Chromium)
 const {
   app, BrowserWindow, ipcMain, session, safeStorage, Menu, clipboard,
-  shell, dialog, nativeTheme, net, systemPreferences, webContents: allWebContents, desktopCapturer, WebContentsView
+  shell, dialog, nativeTheme, net, systemPreferences, webContents: allWebContents, desktopCapturer, WebContentsView, nativeImage
 } = require('electron');
 const path = require('path');
 // ---------- أمان: أوامر الواجهة (كلمات المرور، الإعدادات، العملاء، الملفات...) بتتقبل من واجهة المتصفح بس ----------
@@ -172,6 +172,8 @@ function loadStore() {
   ]);
   // العملاء: كل عميل له جلسة مستقلة persist:c_<id> (فيسبوك وانستا وتيك توك... مسجلين لكل عميل لوحده)
   store.clients = readJSON('clients.json', []);
+  // منصات العملاء اللي المستخدم ضافها بنفسه (اسم + رابط)، متاحة لكل العملاء
+  store.platforms = cleanPlatforms(readJSON('platforms.json', []));
   store.history = readJSON('history.json', []);
   store.bookmarks = readJSON('bookmarks.json', [
     { id: 'b1', title: 'Gmail', url: 'https://mail.google.com/' },
@@ -362,6 +364,9 @@ function setupSession(partition) {
     let dir = store.settings.downloadDir;
     if (!dir || !fs.existsSync(dir)) dir = app.getPath('downloads');
     let name = item.getFilename();
+    // تحميل سورة من مشغّل القرآن: باسم السورة والقارئ بدل 001.mp3
+    const nice = namedDownloads.get(item.getURL());
+    if (nice) { namedDownloads.delete(item.getURL()); name = nice; }
     let target = path.join(dir, name);
     const ext = path.extname(name), base = path.basename(name, ext);
     for (let i = 1; fs.existsSync(target); i++) target = path.join(dir, `${base} (${i})${ext}`);
@@ -1161,6 +1166,7 @@ ipcMain.handle('init', (e) => {
   return {
   profiles: store.profiles,
   clients: store.clients,
+  platforms: store.platforms,
   bookmarks: store.bookmarks,
   settings: store.settings,
   restore,
@@ -1240,14 +1246,16 @@ ipcMain.handle('video:probe', async (_e, { url, partition, referer }) => {
   try { return await downloader.probe(url, { partition: validPartition(partition), userAgent: cleanUA, referer: validReferer(referer, url) }); }
   catch (e) { return { error: e.message }; }
 });
-ipcMain.handle('video:download', (_e, { url, partition, choice, title, useCookies, referer, fileTitle }) => {
+ipcMain.handle('video:download', (_e, { url, partition, choice, title, useCookies, referer, fileTitle, thumbnail, duration }) => {
   if (!/^https?:\/\//i.test(url || '')) return null;
   let dir = store.settings.downloadDir;
   if (!dir || !fs.existsSync(dir)) dir = app.getPath('downloads');
   const id = 'v' + Date.now() + Math.random().toString(36).slice(2, 6);
   const label = choice.kind === 'mp3' ? 'MP3' : (choice.height ? choice.height + 'p' : 'فيديو');
   const entry = { id, video: true, name: `${String(title || 'video').slice(0, 120)} (${label})`, path: '', url,
-    total: 100, received: 0, state: 'progressing', status: 'بيبدأ التحميل...', time: Date.now() };
+    total: 100, received: 0, state: 'progressing', status: 'بيبدأ التحميل...', time: Date.now(),
+    thumb: typeof thumbnail === 'string' && /^https:\/\/[^\s"'<>]+$/i.test(thumbnail) ? thumbnail.slice(0, 2000) : undefined,
+    duration: Number(duration) > 0 ? Math.round(Number(duration)) : undefined, mp3: choice && choice.kind === 'mp3' ? true : undefined };
   store.downloads.unshift(entry);
   sendUI('downloads:update', entry);
   downloader.download(id, url, choice, {
@@ -1369,8 +1377,30 @@ ipcMain.handle('profiles:save', (_e, profiles) => {
 const CLIENT_SITES = ['facebook', 'instagram', 'messenger', 'whatsapp', 'threads', 'business', 'adsmanager', 'tiktok', 'snapchat', 'google', 'googleads', 'x', 'youtube', 'linkedin'];
 function cleanClient(c) {
   return { id: c.id, name: String(c.name || '').trim().slice(0, 40) || 'عميل', color: /^#[0-9a-f]{6}$/i.test(c.color) ? c.color : '#1a73e8',
-    partition: 'persist:' + c.id, sites: Array.isArray(c.sites) ? c.sites.filter(x => CLIENT_SITES.includes(x)) : [], created: Number(c.created) || Date.now() };
+    partition: 'persist:' + c.id, sites: Array.isArray(c.sites) ? c.sites.filter(x => CLIENT_SITES.includes(x) || (store.platforms || []).some(p => p.key === x)).slice(0, 200) : [], created: Number(c.created) || Date.now() };
 }
+function cleanPlatforms(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  return list.filter(p => p && /^u_[a-z0-9]{4,16}$/.test(p.key) && !seen.has(p.key) && seen.add(p.key) && typeof p.url === 'string' && /^https?:\/\/[^\s]+$/i.test(p.url))
+    .slice(0, 100).map(p => ({ key: p.key, name: String(p.name || '').trim().slice(0, 40) || 'منصة', url: p.url.slice(0, 1000) }));
+}
+ipcMain.handle('platforms:save', (_e, list) => {
+  store.platforms = cleanPlatforms(list);
+  writeJSON('platforms.json', store.platforms, true);
+  // المنصة اللي اتمسحت تتشال من كل العملاء
+  const keys = new Set(store.platforms.map(p => p.key));
+  let changed = false;
+  for (const c of store.clients) {
+    const before = (c.sites || []).length;
+    c.sites = (c.sites || []).filter(k => !/^u_/.test(k) || keys.has(k));
+    if (c.sites.length !== before) changed = true;
+  }
+  if (changed) writeJSON('clients.json', store.clients, true);
+  for (const w of windows) if (!w.isDestroyed()) w.webContents.send('platforms:changed', store.platforms);
+  if (changed) broadcastClients();
+  return store.platforms;
+});
 function broadcastClients() {
   for (const w of windows) {
     if (w.isDestroyed()) continue;
@@ -1489,7 +1519,9 @@ ipcMain.handle('history:suggest', (_e, q) => {
   return out.slice(0, 8);
 });
 ipcMain.handle('history:remove', (_e, time) => {
-  store.history = store.history.filter(h => h.time !== time);
+  // وقت واحد أو مجموعة أوقات (التحديد المتعدد في صفحة السجل)
+  const set = new Set((Array.isArray(time) ? time : [time]).map(Number));
+  store.history = store.history.filter(h => !set.has(h.time));
   writeJSON('history.json', store.history);
 });
 ipcMain.handle('history:clear', async (_e, opts = {}) => {
@@ -1686,7 +1718,46 @@ ipcMain.handle('pw:remove', (_e, id) => {
   writeJSON('passwords.json', store.passwords);
 });
 
+// مشغّل القرآن: القرّاء من mp3quran.net
+const quran = require('./quran');
+const namedDownloads = new Map();
+ipcMain.handle('quran:reciters', (_e, force) => quran.reciters(!!force));
+ipcMain.handle('quran:download', (_e, url, title) => {
+  if (typeof url !== 'string' || !/^https:\/\/[a-z0-9.-]+\.mp3quran\.net\/[\w\-./]+\.mp3$/i.test(url)) return false;
+  const safe = String(title || '').replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ').trim().slice(0, 120);
+  if (safe) namedDownloads.set(url, safe + '.mp3');
+  setupSession('persist:default').downloadURL(url);
+  return true;
+});
 ipcMain.handle('downloads:list', () => store.downloads);
+// صورة مصغرة للملف اللي اتحمل (نفس صورة ويندوز إكسبلورر للفيديو/الصورة)، بتتحفظ في الذاكرة
+const dlThumbs = new Map();
+ipcMain.handle('downloads:thumb', async (_e, id) => {
+  const entry = store.downloads.find(d => d.id === id);
+  if (!entry || !entry.path || entry.state !== 'completed') return null;
+  if (dlThumbs.has(entry.path)) return dlThumbs.get(entry.path);
+  let url = null;
+  try {
+    if (fs.existsSync(entry.path) && typeof nativeImage.createThumbnailFromPath === 'function' && process.platform !== 'linux') {
+      const img = await nativeImage.createThumbnailFromPath(entry.path, { width: 240, height: 136 });
+      if (img && !img.isEmpty()) url = img.toDataURL();
+    }
+  } catch { /* مفيش صورة للملف ده */ }
+  if (!url) { try { const ic = await app.getFileIcon(entry.path, { size: 'large' }); if (ic && !ic.isEmpty()) url = 'icon:' + ic.toDataURL(); } catch { /* ignore */ } }
+  if (dlThumbs.size > 300) dlThumbs.clear();
+  dlThumbs.set(entry.path, url);
+  return url;
+});
+ipcMain.handle('downloads:clear', () => {
+  store.downloads = store.downloads.filter(d => d.state === 'progressing' || d.state === 'paused');
+  writeJSON('downloads.json', store.downloads);
+  return store.downloads;
+});
+ipcMain.handle('downloads:open-folder', () => {
+  let dir = store.settings.downloadDir;
+  if (!dir || !fs.existsSync(dir)) dir = app.getPath('downloads');
+  shell.openPath(dir);
+});
 ipcMain.handle('downloads:action', (_e, { id, action }) => {
   const item = activeDownloads.get(id);
   const entry = store.downloads.find(d => d.id === id);

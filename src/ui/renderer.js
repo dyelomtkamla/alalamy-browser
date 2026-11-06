@@ -4,6 +4,10 @@ const $ = (s) => document.querySelector(s);
 // window.api يأتي من ui-preload.js
 
 const NEWTAB = 'alalamy://newtab';
+// صفحات المتصفح الداخلية اللي بتتفتح في تبويب (زي chrome://history)
+const HISTORY_URL = 'alalamy://history';
+const INTERNAL = { [HISTORY_URL]: 'السجل' };
+const isInternal = (u) => Object.prototype.hasOwnProperty.call(INTERNAL, u || '');
 
 const state = {
   tabs: [], active: null, profiles: [], clients: [], client: null, bookmarks: [], settings: {}, closed: [],
@@ -60,6 +64,7 @@ async function toURL(input) {
   const s = input.trim();
   if (!s) return null;
   if (s === NEWTAB) return NEWTAB;
+  if (/^(alalamy|chrome|edge):\/\/history\/?$/i.test(s)) return HISTORY_URL;
   if (/^(https?|file|about|data|view-source):/i.test(s)) return s;
   if (/^localhost(:\d+)?(\/.*)?$/i.test(s) || /^(\d{1,3}\.){3}\d{1,3}(:\d+)?(\/.*)?$/.test(s)) return 'http://' + s;
   if (!/\s/.test(s) && /^[^\s/]+\.[a-z؀-ۿ]{2,}(:\d+)?(\/.*)?$/i.test(s)) return 'https://' + s;
@@ -120,7 +125,8 @@ function createTab({ url = NEWTAB, profileId, clientId, temp = false, partition,
   if (pinned) setPinned(tab, true, false);
   if (muted) { tab.pendingMute = true; tab.tabEl.classList.add('muted'); tab.ui.audio.innerHTML = window.icon ? window.icon('muted') : '🔇'; }
   if (typeof applyClientFilter === 'function') applyClientFilter();
-  if (url !== NEWTAB) {
+  if (isInternal(url)) { tab.title = INTERNAL[url]; tab.ui.title.textContent = tab.title; }
+  else if (url !== NEWTAB) {
     if (lazy && background) markSleeping(tab);
     else ensureWebview(tab, url);
   }
@@ -290,13 +296,14 @@ function activate(tab) {
     if (t.webview) t.webview.classList.toggle('active', t === tab);
   }
   freezeHiddenTabs();
-  $('#newtab').classList.toggle('hidden', !!tab.webview);
+  $('#newtab').classList.toggle('hidden', !!tab.webview || isInternal(tab.url));
+  if (typeof showInternalPage === 'function') showInternalPage(!tab.webview && isInternal(tab.url) ? tab.url : null);
   tab.tabEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  document.title = (tab.webview ? tab.title : 'تبويب جديد') + ' - متصفح العالمي';
+  document.title = (tab.webview || isInternal(tab.url) ? tab.title : 'تبويب جديد') + ' - متصفح العالمي';
   updateNav();
   if (typeof onTabActivated === 'function') onTabActivated(tab);
   if (typeof window.devtoolsOnActivate === 'function') window.devtoolsOnActivate(tab);
-  if (!tab.webview) { renderSpeedDial(); setTimeout(() => $('#ntInput').focus(), 0); }
+  if (!tab.webview && !isInternal(tab.url)) { renderSpeedDial(); setTimeout(() => $('#ntInput').focus(), 0); }
   else if (!state.grid) setTimeout(() => tab.webview && tab.webview.focus(), 0);
   saveSession();
 }
@@ -399,13 +406,13 @@ async function navigate(input, tab = state.active) {
   const url = await toURL(input);
   if (!url || !tab) return;
   hideSuggestions();
-  if (url === NEWTAB) {
+  if (url === NEWTAB || isInternal(url)) {
     // زرار البيت من صفحة: سهم الرجوع يرجّعك للصفحة دي تاني
     if (tab.webview) { tab.backUrl = /^https?:|^file:/.test(tab.url || '') ? tab.url : null; tab.fwdUrl = null; tab.wcId = null; tab.ready = false; tab.webview.remove(); tab.webview = null; }
-    tab.url = NEWTAB; tab.title = 'تبويب جديد'; tab.ui.title.textContent = tab.title;
+    tab.url = url; tab.title = INTERNAL[url] || 'تبويب جديد'; tab.ui.title.textContent = tab.title;
   } else {
     // صفحة اتفتحت من الصفحة الرئيسية: سهم الرجوع يرجع للرئيسية زي كروم
-    if (!tab.webview && tab.url === NEWTAB) { tab.homeBack = true; tab.backUrl = null; tab.fwdUrl = null; }
+    if (!tab.webview && (tab.url === NEWTAB || isInternal(tab.url))) { tab.homeBack = true; tab.backUrl = null; tab.fwdUrl = null; }
     ensureWebview(tab, url);
   }
   activate(tab);
@@ -456,7 +463,7 @@ function updateNav() {
   if ($('#reloadBtn').dataset.state !== rl) { $('#reloadBtn').dataset.state = rl; $('#reloadBtn').innerHTML = icon(rl); $('#reloadBtn').title = tab.loading ? 'إيقاف التحميل' : 'إعادة تحميل (F5)'; }
   if (document.activeElement !== $('#address')) $('#address').value = tab.url === NEWTAB ? '' : displayUrl(tab.url);
   const secure = /^https:/.test(tab.url);
-  $('#secureIcon').innerHTML = icon(tab.url === NEWTAB ? 'search' : (secure ? 'lock' : 'info'));
+  $('#secureIcon').innerHTML = icon(tab.url === NEWTAB ? 'search' : isInternal(tab.url) ? 'history' : (secure ? 'lock' : 'info'));
   $('#secureIcon').title = secure ? 'الاتصال آمن' : '';
   $('#starBtn').classList.toggle('on', state.bookmarks.some(b => b.url === tab.url));
   $('#starBtn').innerHTML = icon(state.bookmarks.some(b => b.url === tab.url) ? 'star-on' : 'star');
@@ -675,25 +682,91 @@ const panels = {
     body.append(list); draw();
   },
   async downloads(body) {
-    const list = el('div'); body.append(list);
+    // شكل بسيط: صورة مصغرة من الفيديو جنب كل ملف، والاسم والحجم، ودوسة على الصورة تشغّله
+    const list = el('div', { class: 'dlist' });
+    const top = el('div', { class: 'dltop' },
+      el('button', { class: 'pill', onclick: () => api.openDownloadsFolder() }, '📂 فتح مجلد التنزيلات'),
+      el('button', { class: 'pill', onclick: async () => { await api.clearDownloads(); draw(); } }, 'مسح القايمة'));
+    body.append(top, list);
+    const VID = /\.(mp4|webm|mkv|mov|m4v|avi|3gp|ts)$/i, AUD = /\.(mp3|m4a|aac|opus|ogg|wav|flac)$/i, IMG = /\.(jpe?g|png|gif|webp|bmp|avif)$/i;
+    const fileUrl = (p) => 'file:///' + encodeURI(String(p).replace(/\\/g, '/').replace(/^\/+/, '')).replace(/#/g, '%23').replace(/\?/g, '%3F');
+    const dayOf = (t) => {
+      const d = new Date(t), n = new Date();
+      const k = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+      const diff = Math.round((k(n) - k(d)) / 86400000);
+      return diff === 0 ? 'اليوم' : diff === 1 ? 'أمس' : d.toLocaleDateString('ar-EG-u-nu-latn', { weekday: 'long', day: 'numeric', month: 'long' });
+    };
+    const thumbs = new Map(); // الصورة بتتعمل مرة واحدة لكل ملف (مش مع كل تحديث للتقدم)
+    const thumbFor = (d) => {
+      const ck = d.id + '|' + d.state + '|' + (d.thumb || '');
+      if (thumbs.has(ck)) return thumbs.get(ck);
+      const box = makeThumb(d);
+      thumbs.set(ck, box);
+      return box;
+    };
+    const makeThumb = (d) => {
+      const name = d.path || d.name || '';
+      const kind = d.mp3 || AUD.test(name) ? 'aud' : (d.video || VID.test(name)) ? 'vid' : IMG.test(name) ? 'img' : 'file';
+      const box = el('div', { class: 'dlthumb ' + kind });
+      const ext = (/\.([a-z0-9]{1,5})$/i.exec(name) || [])[1];
+      box.append(el('span', { class: 'dlph' }, kind === 'aud' ? '🎵' : kind === 'vid' ? '🎬' : kind === 'img' ? '🖼' : '📄'));
+      if (ext) box.append(el('span', { class: 'dlext' }, ext.toUpperCase()));
+      const put = (src) => {
+        const img = el('img', { src, alt: '', referrerpolicy: 'no-referrer' });
+        img.onload = () => box.classList.add('has');
+        img.onerror = () => img.remove();
+        box.prepend(img);
+      };
+      if (d.thumb) put(d.thumb);
+      else if (d.state === 'completed' && d.path) {
+        api.downloadThumb(d.id).then((u) => {
+          if (u && !u.startsWith('icon:')) return put(u);
+          if (kind === 'vid') {
+            // ويندوز مارجّعش صورة: ناخد لقطة من الفيديو نفسه
+            const v = el('video', { muted: '', preload: 'metadata', src: fileUrl(d.path) + '#t=2' });
+            v.addEventListener('loadeddata', () => box.classList.add('has'));
+            v.addEventListener('error', () => v.remove());
+            box.prepend(v);
+          } else if (kind === 'img') put(fileUrl(d.path));
+          else if (u) { const ic = el('img', { class: 'dlicon', src: u.slice(5), alt: '' }); box.querySelector('.dlph').replaceWith(ic); }
+        }).catch(() => {});
+      }
+      if (d.duration) box.append(el('span', { class: 'dldur' }, typeof fmtDuration === 'function' ? fmtDuration(d.duration) : ''));
+      if (d.state === 'completed') box.append(el('span', { class: 'dlplay' }, '▶'));
+      return box;
+    };
     const draw = async () => {
       list.innerHTML = '';
       const items = await api.listDownloads();
+      let day = '';
       for (const d of items) {
         const pct = d.total ? Math.round(d.received / d.total * 100) : 0;
-        const labels = { progressing: d.video ? d.status : `${fmtBytes(d.received)} / ${fmtBytes(d.total)}`, paused: 'متوقف مؤقتاً',
-          completed: fmtBytes(d.total || d.received), cancelled: 'ملغى', interrupted: d.status ? 'فشل: ' + d.status : 'فشل' };
+        const host = (() => { try { return new URL(d.url).hostname.replace(/^www\./, ''); } catch { return ''; } })();
+        const labels = { progressing: d.video ? (d.status || 'بيحمّل...') : `${fmtBytes(d.received)} من ${fmtBytes(d.total)}`, paused: 'متوقف مؤقتاً',
+          completed: [fmtBytes(d.total || d.received), host].filter(Boolean).map(x => '\u2068' + x + '\u2069').join(' · '), cancelled: 'اتلغى', interrupted: d.status ? 'فشل: ' + d.status : 'فشل التحميل' };
+        const act = async (a) => { await api.downloadAction({ id: d.id, action: a }); draw(); };
+        const btn = (txt, title, a, cls = '') => el('button', { class: 'dlbtn ' + cls, title, onclick: (e) => { e.stopPropagation(); act(a); } }, txt);
         const actions = [];
-        if (d.state === 'progressing') actions.push(...(d.video ? [] : [['إيقاف', 'pause']]), ['إلغاء', 'cancel']);
-        if (d.state === 'paused') actions.push(['استئناف', 'resume'], ['إلغاء', 'cancel']);
-        if (d.state === 'completed') actions.push(['فتح', 'open'], ['المجلد', 'show']);
-        actions.push(['✕', 'remove']);
-        list.append(el('div', { class: 'item' },
-          el('div', { class: 'main' }, el('div', { class: 't' }, d.name), el('div', { class: 's' }, labels[d.state] || d.state),
+        if (d.state === 'progressing') { if (!d.video) actions.push(btn('⏸', 'إيقاف مؤقت', 'pause')); actions.push(btn('✕', 'إلغاء التحميل', 'cancel', 'del')); }
+        else if (d.state === 'paused') actions.push(btn('▶', 'استئناف', 'resume'), btn('✕', 'إلغاء التحميل', 'cancel', 'del'));
+        else {
+          if (d.state === 'completed') actions.push(btn('📂', 'إظهار في المجلد', 'show'));
+          actions.push(btn('🗑', 'شيله من القايمة (الملف مش هيتمسح)', 'remove', 'del'));
+        }
+        const done = d.state === 'completed';
+        const dd = dayOf(d.time || Date.now());
+        if (dd !== day) { day = dd; list.append(el('div', { class: 'dlday' }, dd)); }
+        const row = el('div', { class: 'dl ' + d.state + (done ? ' done' : ''), title: done ? 'دوس علشان تفتح الملف' : '' },
+          thumbFor(d),
+          el('div', { class: 'dlinfo' },
+            el('div', { class: 'dlname' }, d.name),
+            el('div', { class: 'dlmeta' + (d.state === 'interrupted' ? ' err' : '') }, el('bdi', {}, labels[d.state] || d.state)),
             d.state === 'progressing' ? el('div', { class: 'progress' }, el('div', { style: `width:${pct}%` })) : null),
-          ...actions.map(([l, a]) => el('button', { class: a === 'remove' ? 'del' : '', onclick: async () => { await api.downloadAction({ id: d.id, action: a }); draw(); } }, l))));
+          el('div', { class: 'dlacts' }, ...actions));
+        if (done) row.addEventListener('click', () => act('open'));
+        list.append(row);
       }
-      if (!items.length) list.append(el('p', { style: 'color:var(--muted)' }, 'لا توجد تنزيلات'));
+      if (!items.length) list.append(el('div', { class: 'dlempty' }, el('div', { class: 'big' }, '⬇'), 'لسه مفيش تنزيلات. أي فيديو أو ملف تحمّله هيظهر هنا بصورته.'));
     };
     panels.downloads.redraw = draw;
     draw();
@@ -835,7 +908,8 @@ const commands = {
   'back': () => goBack(),
   'forward': () => goForward(),
   'bookmark': toggleBookmark,
-  'show-history': () => openPanel('history'),
+  // Ctrl+H: السجل في تبويب لوحده زي كروم (لو مفتوح بنروحله)
+  'show-history': () => { const t = visibleTabs().find(x => x.url === HISTORY_URL && !x.webview); if (t) activate(t); else createTab({ url: HISTORY_URL, index: state.tabs.indexOf(state.active) + 1 }); },
   'show-bookmarks': () => openPanel('bookmarks'),
   'show-downloads': () => openPanel('downloads'),
   'show-passwords': () => openPanel('passwords'),
@@ -872,7 +946,7 @@ Object.assign(commands, {
   'move-tab-prev': () => state.active && moveTab(state.active, -1),
   'move-tab-next': () => state.active && moveTab(state.active, 1),
   'home': () => navigate(state.settings.homepage || NEWTAB),
-  'open-menu': () => { hidePopups(); $('#menu').classList.remove('hidden'); if (typeof updateMenuZoom === 'function') updateMenuZoom(); const b = $('#menu button'); if (b) b.focus(); },
+  'open-menu': () => { hidePopups(); $('#menu').classList.remove('hidden'); if (typeof updateMenuZoom === 'function') updateMenuZoom(); const b = $('#menu button:not(.popclose)'); if (b) b.focus(); },
   'open-file': async () => { const u = await api.openFile(); if (u) createTab({ url: u }); },
   'pin-tab': () => state.active && setPinned(state.active, !state.active.pinned),
   'duplicate-tab': () => { const t = state.active; if (t) createTab({ url: t.url, clientId: t.clientId || null, temp: t.temp, index: state.tabs.indexOf(t) + 1 }); },
@@ -974,7 +1048,10 @@ function bind() {
     const active = [...state.downloads.values()].filter(x => x.state === 'progressing').length;
     $('#dlCount').textContent = active; $('#dlCount').classList.toggle('hidden', !active);
     if (d.state === 'completed') toast(`اكتمل تنزيل ${d.name}`);
-    if (state.panel === 'downloads' && panels.downloads.redraw) panels.downloads.redraw();
+    if (state.panel === 'downloads' && panels.downloads.redraw && !panels.downloads.pending) {
+      // التقدم بيتحدث كتير: نرسم مرة كل نص ثانية بس علشان الصور ماترمش
+      panels.downloads.pending = setTimeout(() => { panels.downloads.pending = 0; if (state.panel === 'downloads') panels.downloads.redraw(); }, d.state === 'progressing' ? 600 : 50);
+    }
   });
   setInterval(() => refreshAdBadge(), 2000);
 }

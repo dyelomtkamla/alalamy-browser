@@ -753,22 +753,50 @@ const YT_SHIELD = `(() => {
     }
   };
   setInterval(killWall, 700);
-  let saved = null;
+  // 1.20.0: الفيديو كان ساعات يعلّق: يوتيوب بقى بيدمج الإعلان جوه نفس ملف الفيديو (SSAI)، فالقفز لآخر «الإعلان»
+  // كان بيقفز لآخر الفيديو كله، أو الـ class بتاع الإعلان بيفضل ثانية بعد ما الفيديو الأصلي يبدأ فنسرّعه هو.
+  // دلوقتي: بنكتم ونسرّع بس، والقفز لآخر الإعلان مرة واحدة ولو الإعلان ملف قصير لوحده، وبعده نرجّع كل حاجة زي ما كانت.
+  let saved = null, jumped = '';
+  const adUI = (p) => !!p.querySelector('.ytp-ad-player-overlay, .ytp-ad-player-overlay-layout, .ytp-ad-preview-container, .ytp-ad-text, .ytp-ad-skip-button-container, .ytp-skip-ad-button, .ytp-ad-persistent-progress-bar-container, .ytp-ad-duration-remaining');
   const skip = () => {
     const p = document.querySelector('#movie_player, .html5-video-player');
     const v = p && p.querySelector('video');
     if (!v) return;
-    if (p.classList.contains('ad-showing') || p.classList.contains('ad-interrupting')) {
-      if (!saved) saved = { muted: v.muted, rate: v.playbackRate };
+    const inAd = (p.classList.contains('ad-showing') || p.classList.contains('ad-interrupting')) && adUI(p);
+    if (inAd) {
+      if (!saved) saved = { muted: v.muted, rate: v.playbackRate > 4 ? 1 : (v.playbackRate || 1) };
       v.muted = true;
-      try { v.playbackRate = 16; } catch (e) {}
-      if (isFinite(v.duration) && v.duration > 0 && v.currentTime < v.duration - 0.1) v.currentTime = v.duration - 0.05;
+      try { if (v.playbackRate < 8) v.playbackRate = 8; } catch (e) {}
       const b = document.querySelector('.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-slot button, .ytp-ad-skip-button-container button');
-      if (b) b.click();
-    } else if (saved) {
-      v.muted = saved.muted; v.playbackRate = saved.rate || 1; saved = null;
+      if (b) { b.click(); return; }
+      // ملف إعلان منفصل وقصير: نقفز لآخره مرة واحدة بس (مش جوه الفيديو الأصلي)
+      const key = (v.currentSrc || v.src || '') + '|' + Math.round(v.duration || 0);
+      let len = 0; try { len = p.getDuration ? p.getDuration() : 0; } catch (e) {}
+      const separate = isFinite(v.duration) && v.duration > 0 && v.duration <= 75 && (!len || Math.abs(len - v.duration) < 2);
+      if (separate && jumped !== key && v.currentTime < v.duration - 1) { jumped = key; v.currentTime = Math.max(0, v.duration - 0.3); }
+    } else {
+      if (saved) { v.muted = saved.muted; try { v.playbackRate = saved.rate; } catch (e) {} saved = null; }
+      // لو الفيديو الأصلي فضل متسرّع من إعلان قبله (تنقّل بين الفيديوهات)
+      else if (v.playbackRate > 4) { try { v.playbackRate = 1; } catch (e) {} }
     }
   };
+  // الفيديو واقف من غير سبب (بيحمّل على طول ومش بيتحرك): نزقّه، ولو فضل واقف نعيد تحميله من نفس الثانية
+  let lastT = -1, stuckSince = 0, nudges = 0, stuckVid = '';
+  setInterval(() => {
+    const p = document.querySelector('#movie_player');
+    const v = p && p.querySelector('video');
+    if (!v || document.hidden) { stuckSince = 0; return; }
+    const ad = p.classList.contains('ad-showing') || p.classList.contains('ad-interrupting');
+    let st = -1; try { st = p.getPlayerState ? p.getPlayerState() : -1; } catch (e) {}
+    let id = ''; try { id = (p.getVideoData && p.getVideoData().video_id) || ''; } catch (e) {}
+    if (id !== stuckVid) { stuckVid = id; nudges = 0; }
+    const waiting = !v.paused && !v.ended && (st === 3 || st === -1 || v.readyState < 3);
+    if (!waiting || v.seeking || Math.abs(v.currentTime - lastT) > 0.05) { lastT = v.currentTime; stuckSince = 0; return; }
+    if (!stuckSince) { stuckSince = Date.now(); return; }
+    const secs = (Date.now() - stuckSince) / 1000;
+    if (secs > 5 && nudges === 0) { nudges = 1; stuckSince = Date.now(); try { v.currentTime = v.currentTime + 0.05; } catch (e) {} }
+    else if (secs > 6 && nudges === 1 && id && !ad) { nudges = 2; stuckSince = Date.now(); try { p.loadVideoById(id, Math.max(0, (p.getCurrentTime && p.getCurrentTime()) || v.currentTime)); } catch (e) {} }
+  }, 1000);
   setInterval(skip, 150);
   // أول ما الإعلان يبدأ (المشغّل بياخد class ad-showing) نتخطاه على طول من غير ما نستنى
   const watchPlayer = () => {

@@ -21,6 +21,10 @@ const CLIENT_SITES = [
   { key: 'youtube', name: 'يوتيوب ستوديو', url: 'https://studio.youtube.com/' },
   { key: 'linkedin', name: 'لينكدإن', url: 'https://www.linkedin.com/login' }
 ];
+// المنصات اللي المستخدم ضافها بنفسه (اسم + رابط): بتظهر مع منصات العملاء لكل العملاء
+let customPlatforms = [];
+function allClientSites() { return [...CLIENT_SITES, ...customPlatforms.map(p => ({ ...p, custom: true }))]; }
+function siteHost(u) { try { return new URL(u).hostname; } catch { return ''; } }
 const CLIENT_COLORS = ['#1a73e8', '#d93025', '#188038', '#f29900', '#9334e6', '#e52592', '#12b5cb', '#5f6368', '#b06000', '#3949ab'];
 
 function currentClient() { return clientById(state.client); }
@@ -95,20 +99,26 @@ function openClientSites(c, only) {
     api.openClientWindow(c.id, { only: only || c.sites || [], tabs: takeClientTabs(c.id) });
     return;
   }
-  const sites = CLIENT_SITES.filter(s => (only || c.sites || []).includes(s.key));
+  const sites = allClientSites().filter(s => (only || c.sites || []).includes(s.key));
   if (!sites.length) { createTab({ clientId: c.id }); return; }
-  const open = new Set(clientTabs(c.id).map(t => { try { return new URL(t.url).hostname; } catch { return ''; } }));
+  // دوسة على منصة واحدة = تبويب جديد كل مرة على نفس جلسة العميل (10 دوسات = 10 تبويبات)
+  if (only && only.length === 1) {
+    const at = state.active ? state.tabs.indexOf(state.active) + 1 : undefined;
+    createTab({ url: sites[0].url, clientId: c.id, index: at });
+    return;
+  }
+  const open = new Set(clientTabs(c.id).map(t => siteHost(t.url)));
   let first = null;
   for (const s of sites) {
-    if (open.has(new URL(s.url).hostname)) continue; // الموقع مفتوح بالفعل للعميل ده
+    if (open.has(siteHost(s.url))) continue; // «فتح كل المنصات»: اللي مفتوح بالفعل مش بيتكرر
     const t = createTab({ url: s.url, clientId: c.id, background: !!first });
     first = first || t;
   }
   if (first) activate(first);
   else {
     // المنصة مفتوحة بالفعل: نروح لتبويبها
-    const host = new URL(sites[0].url).hostname;
-    const t = clientTabs(c.id).find(x => { try { return new URL(x.url).hostname === host; } catch { return false; } });
+    const host = siteHost(sites[0].url);
+    const t = clientTabs(c.id).find(x => siteHost(x.url) === host);
     if (t) activate(t);
     if (sites.length > 1) toast('كل منصات العميل مفتوحة بالفعل');
   }
@@ -123,21 +133,22 @@ function renderClientSitesBar() {
   if (!c) { bar.innerHTML = ''; return; }
   const hosts = new Set(clientTabs(c.id).map(t => { try { return new URL(t.url).hostname; } catch { return ''; } }));
   const act = state.active && (() => { try { return new URL(state.active.url).hostname; } catch { return ''; } })();
-  const sites = CLIENT_SITES.filter(s => (c.sites || []).includes(s.key));
+  const sites = allClientSites().filter(s => (c.sites || []).includes(s.key));
   const sig = c.id + '|' + sites.map(s => s.key).join(',') + '|' + [...hosts].join(',') + '|' + act;
   if (bar.dataset.sig === sig) return;
   bar.dataset.sig = sig;
   bar.innerHTML = '';
   bar.append(el('span', { class: 'csb-name' }, el('span', { class: 'dot', style: `background:${c.color}` }), el('bdi', {}, c.name)));
   for (const s of sites) {
-    const h = new URL(s.url).hostname;
+    const h = siteHost(s.url);
     const img = el('img', { src: faviconFor(s.url), alt: '' });
     img.onerror = () => img.remove();
-    const b = el('button', { class: 'csb-site' + (hosts.has(h) ? ' open' : '') + (act === h ? ' cur' : ''), title: (hosts.has(h) ? 'روح لـ ' : 'افتح ') + s.name, 'data-key': s.key,
+    const b = el('button', { class: 'csb-site' + (hosts.has(h) ? ' open' : '') + (act === h ? ' cur' : ''), title: 'افتح ' + s.name + ' في تبويب جديد', 'data-key': s.key,
       onclick: () => { openClientSites(c, [s.key]); renderClientSitesBar(); } }, img, s.name);
     bar.append(b);
   }
   if (!sites.length) bar.append(el('span', { class: 'csb-hint' }, 'مفيش منصات متعلّم عليها للعميل ده'));
+  bar.append(el('button', { class: 'csb-edit', title: 'إضافة منصة باسمك ورابطها', onclick: () => openPlatformDialog(c) }, '+ منصة'));
   bar.append(el('button', { class: 'csb-edit', title: 'تعديل منصات العميل', onclick: () => openClientDialog(c) }, '✎ تعديل المنصات'));
 }
 if (CLIENT_WIN) setInterval(renderClientSitesBar, 1200);
@@ -238,12 +249,13 @@ function showClientMenu(fromProfile = false) {
   const c = currentClient();
   if (c) {
     // منصات العميل الحالي: دوسة تفتح أي منصة لوحدها، وتعديل المنصات في أي وقت
-    const chips = el('div', { class: 'cplat' }, ...CLIENT_SITES.filter(s => (c.sites || []).includes(s.key)).map(s => {
+    const chips = el('div', { class: 'cplat' }, ...allClientSites().filter(s => (c.sites || []).includes(s.key)).map(s => {
       const img = el('img', { src: faviconFor(s.url), alt: '' });
       img.onerror = () => img.remove();
       return el('button', { title: 'فتح ' + s.name, onclick: () => { hidePopups(); openClientSites(c, [s.key]); } }, img, s.name);
     }));
     m.append(el('hr'), el('div', { class: 'mhead' }, 'منصات ', el('bdi', {}, c.name)), chips,
+      el('button', { onclick: () => { hidePopups(); openPlatformDialog(c); } }, '+ إضافة منصة (اسم ورابط)'),
       el('button', { onclick: () => { hidePopups(); openClientDialog(c); } }, '✎ تعديل منصات ', el('bdi', {}, c.name)),
       el('button', { onclick: () => { hidePopups(); openClientSites(c); } }, '↗ فتح كل منصات ', el('bdi', {}, c.name)));
   }
@@ -284,6 +296,36 @@ function openClientDialog(edit) {
   };
   const metaGrid = el('div', { class: 'csites' }, ...CLIENT_SITES.filter(s => s.meta).map(siteBox));
   const otherGrid = el('div', { class: 'csites' }, ...CLIENT_SITES.filter(s => !s.meta).map(siteBox));
+  const customGrid = el('div', { class: 'csites' });
+  const drawCustom = () => {
+    // نحافظ على العلامات اللي اتعلمت قبل ما نعيد الرسم
+    for (const x of customGrid.querySelectorAll('input')) x.checked ? chosen.add(x.value) : chosen.delete(x.value);
+    customGrid.innerHTML = '';
+    for (const p of customPlatforms) {
+      const lab = siteBox(p);
+      const del = el('button', { type: 'button', class: 'cpdel', title: 'مسح المنصة دي من كل العملاء' }, '✕');
+      del.addEventListener('click', async (e) => {
+        e.preventDefault(); e.stopPropagation();
+        if (!confirm(`مسح منصة «${p.name}»؟`)) return;
+        await savePlatforms(customPlatforms.filter(x => x.key !== p.key));
+        drawCustom();
+      });
+      lab.append(del);
+      customGrid.append(lab);
+    }
+  };
+  drawCustom();
+  const pName = el('input', { type: 'text', maxlength: '40', placeholder: 'اسم المنصة' });
+  const pUrl = el('input', { type: 'text', dir: 'ltr', placeholder: 'https://...' });
+  const addP = async () => {
+    const r = await addCustomPlatform(pName.value, pUrl.value);
+    if (r.error) { err.textContent = r.error; return; }
+    err.textContent = '';
+    chosen.add(r.key); pName.value = ''; pUrl.value = '';
+    drawCustom();
+  };
+  const addRow = el('div', { class: 'cpadd' }, pName, pUrl, el('button', { type: 'button', class: 'pill', onclick: addP }, '+ إضافة'));
+  for (const i of [pName, pUrl]) i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); addP(); } });
   const allMeta = el('button', { type: 'button', class: 'pill cselall', onclick: () => {
     const boxes = [...metaGrid.querySelectorAll('input')];
     const on = !boxes.every(b => b.checked);
@@ -291,13 +333,14 @@ function openClientDialog(edit) {
   } }, 'كل منصات ميتا');
   const sites = el('div', {},
     el('div', { class: 'cgroup' }, el('span', {}, 'ميتا'), allMeta), metaGrid,
-    el('div', { class: 'cgroup' }, el('span', {}, 'منصات تانية')), otherGrid);
+    el('div', { class: 'cgroup' }, el('span', {}, 'منصات تانية')), otherGrid,
+    el('div', { class: 'cgroup' }, el('span', {}, 'منصاتك (ضيف أي منصة باسمها ورابطها)')), customGrid, addRow);
   const err = el('div', { class: 'cerr' });
   const submit = async () => {
     const nm = name.value.trim();
     if (!nm) { err.textContent = 'اكتب اسم العميل'; name.focus(); return; }
     if (state.clients.some(c => c.name === nm && (!edit || c.id !== edit.id))) { err.textContent = 'فيه عميل بنفس الاسم'; name.focus(); return; }
-    const keys = [...sites.querySelectorAll('input:checked')].map(x => x.value);
+    const keys = [...sites.querySelectorAll('.csites input:checked')].map(x => x.value);
     if (edit) {
       const added = keys.filter(k => !(edit.sites || []).includes(k));
       state.clients = await api.saveClients(state.clients.map(c => c.id === edit.id ? { ...c, name: nm, color, sites: keys } : c));
@@ -318,6 +361,7 @@ function openClientDialog(edit) {
     toast(`اتعمل العميل «${c.name}» واتفتح في نافذة لوحده. افتح أي منصة من شريط المنصات وسجّل دخولها مرة واحدة`);
   };
   const box = el('div', { class: 'cdialog', role: 'dialog' },
+    el('div', { class: 'dlgclose' }, el('button', { type: 'button', class: 'icon', title: 'إغلاق (Esc)', onclick: closeClientDialog }, '✕')),
     el('h3', {}, edit ? 'تعديل العميل' : 'عميل جديد'),
     el('label', { class: 'cfield' }, 'الاسم', name),
     el('div', { class: 'cfield' }, 'اللون', swatches),
@@ -330,7 +374,7 @@ function openClientDialog(edit) {
       edit ? el('button', { class: 'cdel', onclick: () => removeClient(edit) }, 'حذف العميل') : null));
   const ov = el('div', { id: 'clientDialog' }, box);
   ov.addEventListener('mousedown', (e) => { if (e.target === ov) closeClientDialog(); });
-  box.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.tagName === 'INPUT' && e.target.type === 'text') submit(); if (e.key === 'Escape') closeClientDialog(); });
+  box.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target === name) submit(); if (e.key === 'Escape') closeClientDialog(); });
   document.body.append(ov);
   setTimeout(() => name.focus(), 0);
 }
@@ -351,6 +395,62 @@ async function removeClient(c, force = false) {
   renderClientChip();
   toast(`اتحذف العميل «${c.name}»`);
 }
+
+// ---------- منصة مخصصة: اسم + رابط ----------
+function normPlatformUrl(u) {
+  u = String(u || '').trim();
+  if (!u) return '';
+  if (!/^[a-z][\w+.-]*:/i.test(u)) u = 'https://' + u;
+  try { const x = new URL(u); return /^https?:$/.test(x.protocol) && x.hostname.includes('.') ? x.href : ''; } catch { return ''; }
+}
+async function savePlatforms(list) {
+  customPlatforms = (await api.savePlatforms(list)) || [];
+  return customPlatforms;
+}
+async function addCustomPlatform(name, url) {
+  name = String(name || '').trim();
+  const u = normPlatformUrl(url);
+  if (!u) return { error: 'اكتب رابط المنصة صح، مثلاً: business.tiktok.com' };
+  if (!name) { try { name = new URL(u).hostname.replace(/^www\./, ''); } catch { name = 'منصة'; } }
+  const key = 'u_' + randomId();
+  await savePlatforms([...customPlatforms, { key, name, url: u }]);
+  if (!customPlatforms.some(p => p.key === key)) return { error: 'تعذر حفظ المنصة' };
+  return { key };
+}
+// إضافة منصة من شريط المنصات أو قايمة العميل: بتتضاف للعميل ده وتتفتح على طول
+function openPlatformDialog(c) {
+  closeClientDialog();
+  const name = el('input', { type: 'text', maxlength: '40', placeholder: 'اسم المنصة، مثلاً: تيك توك إعلانات' });
+  const url = el('input', { type: 'text', dir: 'ltr', placeholder: 'https://ads.tiktok.com/' });
+  const err = el('div', { class: 'cerr' });
+  const submit = async () => {
+    const r = await addCustomPlatform(name.value, url.value);
+    if (r.error) { err.textContent = r.error; url.focus(); return; }
+    if (c) {
+      const fresh = clientById(c.id) || c;
+      state.clients = await api.saveClients(state.clients.map(x => x.id === c.id ? { ...x, sites: [...(fresh.sites || []), r.key] } : x));
+    }
+    closeClientDialog();
+    renderClientSitesBar();
+    toast(c ? `اتضافت المنصة للعميل «${c.name}»` : 'اتضافت المنصة');
+    if (c) openClientSites(clientById(c.id) || c, [r.key]);
+  };
+  const box = el('div', { class: 'cdialog', role: 'dialog' },
+    el('div', { class: 'dlgclose' }, el('button', { class: 'icon', title: 'إغلاق (Esc)', onclick: closeClientDialog }, '✕')),
+    el('h3', {}, 'إضافة منصة'),
+    el('label', { class: 'cfield' }, 'اسم المنصة', name),
+    el('label', { class: 'cfield' }, 'الرابط', url),
+    el('p', { class: 'cnote' }, c ? `المنصة هتظهر في شريط منصات «${c.name}» وفي قايمة المنصات لكل العملاء. كل دوسة عليها بتفتحها في تبويب جديد على جلسة العميل.` : 'المنصة هتظهر في قايمة المنصات لكل العملاء.'),
+    err,
+    el('div', { class: 'cbtns' }, el('button', { class: 'primary', onclick: submit }, 'إضافة وفتح'), el('button', { class: 'pill', onclick: closeClientDialog }, 'إلغاء')));
+  const ov = el('div', { id: 'clientDialog' }, box);
+  ov.addEventListener('mousedown', (e) => { if (e.target === ov) closeClientDialog(); });
+  box.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') submit(); if (e.key === 'Escape') closeClientDialog(); });
+  document.body.append(ov);
+  setTimeout(() => name.focus(), 0);
+}
+api.on('platforms:changed', (list) => { if (Array.isArray(list)) { customPlatforms = list; renderClientSitesBar(); } });
+api.init().then((d) => { if (d && Array.isArray(d.platforms)) { customPlatforms = d.platforms; renderClientSitesBar(); } }).catch(() => {});
 
 // لو اتعدلت قايمة العملاء من نافذة تانية
 api.on('clients:changed', (list) => {

@@ -864,3 +864,132 @@ html[dir=ltr] #devDock .dd-resize { inset-inline-end: auto; inset-inline-start: 
 @media (min-width: 1240px) {
   .ntSide, .ntEdge { position: sticky; top: 16px; max-height: calc(var(--ntH, 100vh) - 32px); overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--nt-muted) 35%, transparent) transparent; border-radius: 22px; }
 }
+
+/* ---- صفحة السجل في تبويب (Ctrl+H) زي chrome://history ---- */
+#historyPage { position: absolute; inset: 0; z-index: 45; display: flex; flex-direction: column; background: var(--bg-page, #f8f9fa); color: var(--text); overflow: hidden; }
+@media (prefers-color-scheme: dark) { #historyPage { background: var(--bg-page, #202124); } }
+#historyPage .htop { display: flex; align-items: center; gap: 16px; padding: 10px 20px; flex: none; }
+#historyPage .htitle { display: flex; align-items: center; gap: 10px; font-size: 22px; width: 250px; flex: none; }
+#historyPage .htitle img { width: 28px; height: 28px; }
+#historyPage .hsearch { flex: 1; display: flex; justify-content: center; }
+#histSearch { width: min(680px, 100%); padding: 11px 20px; border-radius: 24px; border: 2px solid transparent; background: var(--input); font-size: 14px; outline: none; }
+#histSearch:focus { border-color: var(--accent); background: var(--popup); }
+#historyPage .hclose { font-size: 15px; }
+#historyPage .hmain { flex: 1; display: flex; min-height: 0; }
+#historyPage .hnav { width: 270px; flex: none; padding: 8px 0; }
+#historyPage .hnav button { display: flex; align-items: center; gap: 14px; width: calc(100% - 12px); padding: 11px 22px; border-radius: 0 22px 22px 0; text-align: start; font-size: 14px; }
+#historyPage .hnav button:hover { background: var(--hover); }
+#historyPage .hnav button.active { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-weight: 500; }
+#historyPage .hicon { width: 20px; display: inline-flex; justify-content: center; }
+#historyPage .hicon svg { width: 18px; height: 18px; }
+#historyPage .hbody { flex: 1; overflow: auto; padding: 4px 24px 60px; }
+#histSelbar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; max-width: 960px; margin: 0 auto 10px; padding: 8px 14px; border-radius: 10px; background: var(--accent); color: #fff; }
+#histSelbar .grow { flex: 1; }
+#histSelbar .pill { border-color: #fff8; color: #fff; }
+#histSelbar .primary { background: #fff !important; color: var(--accent) !important; }
+#historyPage .hcard { max-width: 960px; margin: 0 auto 16px; background: var(--popup); border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.16); padding: 2px 0 8px; }
+#historyPage .hcard h3 { font-size: 15px; font-weight: 500; margin: 0; padding: 16px 22px 12px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+#historyPage .hrow { display: flex; align-items: center; gap: 14px; padding: 5px 18px; min-height: 38px; }
+#historyPage .hrow:hover { background: var(--hover); }
+#historyPage .hrow.sel { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+#historyPage .hrow input[type=checkbox] { width: 17px; height: 17px; margin: 0; flex: none; accent-color: var(--accent); cursor: pointer; }
+#historyPage .hcbspace { width: 17px; flex: none; }
+#historyPage .htime { width: 62px; flex: none; color: var(--muted); font-size: 12px; white-space: nowrap; }
+#historyPage .hfav { width: 16px; height: 16px; flex: none; border-radius: 3px; }
+#historyPage .hfav.ph { background: var(--border); }
+#historyPage .hmid { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; }
+#historyPage .htt { color: var(--text); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; font-size: 13.5px; }
+#historyPage .htt:hover { text-decoration: underline; }
+#historyPage .hdom { color: var(--muted); font-size: 12px; direction: ltr; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0; }
+#historyPage .hdom:hover { color: var(--accent); }
+#historyPage .hmore { font-size: 17px; width: 28px; height: 28px; }
+#historyPage .hempty { text-align: center; color: var(--muted); padding: 60px; font-size: 15px; }
+@media (max-width: 900px) { #historyPage .hnav { width: 64px; } #historyPage .hnav button span:last-child { display: none; } #historyPage .htitle { width: auto; } #historyPage .htitle span { display: none; } }
+
+/* ---- ✕ في كل قايمة ونافذة (قفل أي حاجة مفتوحة) ---- */
+.popup > .popclose { position: sticky; top: 0; float: left; display: flex !important; width: 24px !important; height: 24px; padding: 0 !important; margin: -2px 6px 0; align-items: center; justify-content: center; border-radius: 50%; z-index: 3; background: var(--popup); color: var(--muted); font-size: 11px; }
+.popup > .popclose:hover { background: var(--hover); color: var(--text); }
+.cdialog { position: relative; }
+.cdialog .dlgclose { position: absolute; top: 8px; left: 8px; }
+.cdialog .dlgclose .icon { width: 28px; height: 28px; font-size: 13px; color: var(--muted); }
+.cdialog .cpadd { display: flex; gap: 6px; margin-top: 8px; }
+.cdialog .cpadd input { flex: 1; min-width: 0; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--input); }
+.cdialog .csites label { position: relative; }
+.cdialog .cpdel { margin-inline-start: auto; color: var(--danger); font-size: 11px; padding: 0 4px; border-radius: 4px; }
+.cdialog .cpdel:hover { background: var(--hover); }
+
+/* ---- لوحة التنزيلات بصور مصغرة ---- */
+.dltop { display: flex; gap: 8px; margin-bottom: 8px; }
+.dltop .pill { font-size: 12px; }
+.dlday { color: var(--muted); font-size: 12px; margin: 12px 4px 6px; font-weight: 600; }
+.dl { display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 10px; margin-bottom: 4px; }
+.dl:hover { background: var(--hover); }
+.dl.done { cursor: pointer; }
+.dlthumb { position: relative; width: 112px; height: 63px; flex: none; border-radius: 8px; overflow: hidden; background: linear-gradient(135deg, #e8eaed, #d2d6dc); display: flex; align-items: center; justify-content: center; }
+.dlthumb.vid { background: linear-gradient(135deg, #263238, #455a64); }
+.dlthumb.aud { background: linear-gradient(135deg, #6a1b9a, #ad1457); }
+@media (prefers-color-scheme: dark) { .dlthumb { background: linear-gradient(135deg, #3c4043, #2a2b2e); } }
+.dlthumb > img, .dlthumb > video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.dlthumb .dlicon { position: static; width: 34px; height: 34px; object-fit: contain; }
+.dlthumb .dlph { font-size: 24px; opacity: .85; }
+.dlthumb.has .dlph, .dlthumb.has .dlext { display: none; }
+.dlthumb .dlext { position: absolute; bottom: 4px; left: 6px; font-size: 9px; font-weight: 700; color: #fff; opacity: .85; letter-spacing: .5px; }
+.dlthumb.file .dlext, .dlthumb.img .dlext { color: #5f6368; }
+.dlthumb .dldur { position: absolute; bottom: 4px; right: 4px; background: rgba(0,0,0,.75); color: #fff; font-size: 10px; padding: 1px 5px; border-radius: 4px; direction: ltr; }
+.dlthumb .dlplay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 20px; background: rgba(0,0,0,.35); opacity: 0; transition: opacity .15s; }
+.dl.done:hover .dlplay { opacity: 1; }
+.dlinfo { flex: 1; min-width: 0; }
+.dlname { font-size: 13px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
+.dlmeta { color: var(--muted); font-size: 11.5px; margin-top: 3px; }
+.dlmeta.err { color: var(--danger); }
+.dl.cancelled .dlname, .dl.interrupted .dlname { opacity: .6; }
+.dlacts { display: flex; flex-direction: column; gap: 2px; flex: none; opacity: .55; }
+.dl:hover .dlacts { opacity: 1; }
+.dlbtn { width: 30px; height: 28px; border-radius: 6px; font-size: 13px; }
+.dlbtn:hover { background: var(--hover); }
+.dlbtn.del:hover { color: var(--danger); }
+.dlempty { text-align: center; color: var(--muted); padding: 50px 20px; line-height: 1.8; }
+.dlempty .big { font-size: 40px; opacity: .4; }
+
+/* ---- مشغّل القرآن ---- */
+.qbody .qnow { background: linear-gradient(135deg, #0b6e4f, #13896f); color: #fff; border-radius: 14px; padding: 14px 16px 12px; margin-bottom: 10px; }
+.qbody .qtitle { display: flex; flex-direction: column; gap: 2px; }
+.qbody .qtitle b { font-size: 18px; }
+.qbody .qtitle span, .qbody .qmname { opacity: .85; font-size: 12px; }
+.qbody .qmoshaf, .qbody .qrate { margin-top: 6px; background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.3); border-radius: 6px; padding: 3px 6px; font-size: 12px; max-width: 100%; }
+.qbody .qmoshaf option, .qbody .qrate option { color: #000; }
+.qbody .qseek { width: 100%; margin: 10px 0 0; accent-color: #fff; }
+.qbody .qtime { font-size: 11px; opacity: .85; direction: ltr; text-align: center; }
+.qbody .qctl { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 4px; }
+.qbody .qctl button { min-width: 36px; height: 36px; border-radius: 18px; color: #fff; font-size: 14px; }
+.qbody .qctl button:hover { background: rgba(255,255,255,.15); }
+.qbody .qctl .qbig { width: 52px; height: 52px; border-radius: 50%; background: #fff; color: #0b6e4f; font-size: 22px; }
+.qbody .qctl .qbig:hover { background: #e8f5e9; }
+.qbody .qopts { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-top: 6px; }
+.qbody .qopts button { font-size: 12px; padding: 4px 10px; border-radius: 12px; background: rgba(255,255,255,.15); color: #fff; }
+.qbody .qopts .qrate { margin-top: 0; }
+.qbody .qtabs { display: flex; gap: 6px; margin-bottom: 8px; }
+.qbody .qtabs button { flex: 1; padding: 7px; border-radius: 16px; border: 1px solid var(--border); font-size: 12.5px; }
+.qbody .qtabs button.on { background: #0b6e4f; color: #fff; border-color: #0b6e4f; }
+.qbody .qrow { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px; border-radius: 8px; text-align: start; }
+.qbody .qrow:hover { background: var(--hover); }
+.qbody .qrow.cur { background: color-mix(in srgb, #0b6e4f 14%, transparent); font-weight: 600; }
+.qbody .qrow .qname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qbody .qrow small { color: var(--muted); font-size: 11px; }
+.qbody .qnum, .qbody .qav { width: 30px; height: 30px; border-radius: 50%; background: color-mix(in srgb, #0b6e4f 15%, transparent); color: #0b6e4f; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex: none; }
+@media (prefers-color-scheme: dark) { .qbody .qnum, .qbody .qav { color: #7fd8b5; } }
+.qbody .qstar { color: var(--muted); font-size: 16px; padding: 0 4px; }
+.qbody .qstar.on { color: #f4b400; }
+.qbody .qeq { color: #0b6e4f; }
+.qbody .qmsg { color: var(--muted); padding: 20px 6px; text-align: center; line-height: 1.8; }
+#quranBar { position: fixed; bottom: 14px; left: 14px; z-index: 95; display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 12px; border-radius: 26px; background: #0b6e4f; color: #fff; box-shadow: 0 6px 20px rgba(0,0,0,.3); max-width: min(520px, calc(100vw - 28px)); }
+#quranBar .qbic { font-size: 16px; }
+#quranBar .qbt { display: flex; flex-direction: column; min-width: 0; cursor: pointer; padding: 0 4px; }
+#quranBar .qbt b { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#quranBar .qbt small { font-size: 11px; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
+#quranBar button { width: 30px; height: 30px; border-radius: 50%; color: #fff; flex: none; }
+#quranBar button:hover { background: rgba(255,255,255,.18); }
+#quranBar .qbplay { background: #fff; color: #0b6e4f; }
+#quranBar .qbplay:hover { background: #e8f5e9; }
+#quranBar .qtime { font-size: 11px; opacity: .85; direction: ltr; white-space: nowrap; }
+body.quran-wait #quranBar .qbplay { animation: lpPulse 1.2s ease-in-out infinite; }

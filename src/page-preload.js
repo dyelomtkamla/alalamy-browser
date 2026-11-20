@@ -725,15 +725,8 @@ const YT_SHIELD = `(() => {
   if (window.__alalamyYT) return; window.__alalamyYT = 1;
   // 1.19.3: مابقيناش نشيل الإعلانات من بيانات الفيديو: يوتيوب بقى بيكشف ده ويطلع رسالة «أدوات حظر الإعلانات».
   // بدل كده الإعلان بيتحمّل عادي وبيتخطّى في لحظة وهو مكتوم (زي ما تكون دست «تخطي» بنفسك).
-  // رسالة يوتيوب «أدوات حظر الإعلانات تخالف بنود الخدمة»: الكود اللي بيظهرها بيتسجل كـ callback اسمه onAbnormalityDetected
-  // (نفس طريقة uBlock Origin): بنبدله بدالة فاضية فالرسالة ماتظهرش
-  try {
-    const then = Promise.prototype.then;
-    Promise.prototype.then = new Proxy(then, { apply(t, self, args) {
-      try { if (typeof args[0] === 'function' && String(args[0]).includes('onAbnormalityDetected')) args[0] = function () {}; } catch (e) {}
-      return Reflect.apply(t, self, args);
-    } });
-  } catch (e) {}
+  // 1.20.1: اتشال تعديل Promise.prototype.then (كان بيتقري «function () { [native code] }» من غير اسم then)
+  // اختبار على جهاز حقيقي: يوتيوب كان بيرجّع للفيديو حالة ERROR برسالة «أدوات حظر الإعلانات» من أول تحميل للصفحة.
   // لو الرسالة ظهرت برضه: نقفلها ونكمّل الفيديو، ولو الفيديو اتقفل بشاشة الخطأ بتاعتها نعيد تحميله
   const killWall = () => {
     const w = document.querySelector('ytd-enforcement-message-view-model');
@@ -746,7 +739,14 @@ const YT_SHIELD = `(() => {
     const p = document.getElementById('movie_player');
     const pr = p && p.getPlayerResponse && p.getPlayerResponse();
     const err = pr && pr.playabilityStatus;
-    if (err && err.status === 'UNPLAYABLE' && JSON.stringify(err.errorScreen || {}).includes('answer/3037019') && !p.__alalamyRetry) {
+    // يوتيوب قفل الفيديو بسبب المانع (ERROR + enforcementMessage): المشغّل بيفضل أسود لإن الرسالة متخبية،
+    // فبنعلّم الصفحة والـ preload بيظهر شريط فيه «شغّل الفيديو بالإعلانات» و«إعادة المحاولة»
+    const es = err ? JSON.stringify(err.errorScreen || {}) : '';
+    const walled = !!err && err.status !== 'OK' && (es.includes('enforcementMessageViewModel') || es.includes('answer/3037019'));
+    const root = document.documentElement;
+    if (walled) { const id = (pr.videoDetails && pr.videoDetails.videoId) || '1'; if (root.getAttribute('data-alalamy-ytblock') !== id) root.setAttribute('data-alalamy-ytblock', id); }
+    else if (err && root.hasAttribute('data-alalamy-ytblock')) root.removeAttribute('data-alalamy-ytblock');
+    if (err && err.status === 'UNPLAYABLE' && es.includes('answer/3037019') && !p.__alalamyRetry) {
       p.__alalamyRetry = 1;
       try { p.loadVideoById(pr.videoDetails.videoId, (pr.playerConfig && pr.playerConfig.playbackStartConfig && pr.playerConfig.playbackStartConfig.startSeconds) || 0); } catch (e) {}
       setTimeout(() => { p.__alalamyRetry = 0; }, 8000);
@@ -836,6 +836,31 @@ if (/(^|\.)youtube\.com$/.test(location.hostname)) {
       inAd = ad;
       try { for (const x of document.querySelectorAll(YT_CSS.replace(/\{[^}]*\}/, ''))) if (!seen.has(x)) { seen.add(x); n++; } } catch { /* ignore */ }
       if (n) ipcRenderer.send('adblock:yt-count', Math.min(n, 50));
+    }, 1000);
+    // شريط لما يوتيوب يقفل الفيديو بسبب المانع (بدل شاشة سودا من غير أي رسالة)
+    let bar = null, barFor = '';
+    setInterval(() => {
+      const id = document.documentElement && document.documentElement.getAttribute('data-alalamy-ytblock');
+      if (!id) { if (bar) { bar.remove(); bar = null; } barFor = ''; return; }
+      if (bar && bar.isConnected) return;
+      if (barFor === id) return; // المستخدم قفل الشريط للفيديو ده
+      barFor = id;
+      const host = document.createElement('div');
+      host.style.cssText = 'position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:2147483647';
+      const sh = host.attachShadow({ mode: 'closed' });
+      sh.innerHTML = `<style>
+        .b{direction:rtl;font:14px/1.6 system-ui,'Segoe UI',Tahoma,sans-serif;background:#202124;color:#fff;border-radius:12px;
+           padding:12px 14px;box-shadow:0 6px 24px rgba(0,0,0,.35);display:flex;gap:10px;align-items:center;flex-wrap:wrap;max-width:620px}
+        button{font:inherit;border:0;border-radius:18px;padding:6px 14px;cursor:pointer}
+        .y{background:#8ab4f8;color:#202124;font-weight:600}.n{background:#3c4043;color:#fff}.x{background:none;color:#aaa;padding:4px 8px}
+      </style><div class="b"><span>يوتيوب كشف مانع الإعلانات ووقف الفيديو.</span>
+        <button class="y">شغّل الفيديو بالإعلانات</button><button class="n">إعادة المحاولة</button><button class="x" title="إغلاق">✕</button></div>`;
+      const [yes, retry, close] = sh.querySelectorAll('button');
+      yes.addEventListener('click', (e) => { if (e.isTrusted) ipcRenderer.send('adblock:yt-allow'); });
+      retry.addEventListener('click', (e) => { if (e.isTrusted) location.reload(); });
+      close.addEventListener('click', (e) => { if (e.isTrusted) { host.remove(); bar = null; } });
+      document.documentElement.appendChild(host);
+      bar = host;
     }, 1000);
   }
 }

@@ -237,13 +237,15 @@ async function showAdMenu() {
   const m = $('#profileMenu');
   m.innerHTML = '';
   const t = state.active;
+  // الإعدادات ممكن تكون اتغيرت من صفحة يوتيوب نفسها (زرار «شغّل الفيديو بالإعلانات»)
+  try { state.settings = await api.saveSettings({}); } catch { /* ignore */ }
   const host = t && /^https?:/.test(t.url || '') ? adHost(t.url) : '';
   const s = await api.stats(t && t.wcId);
   const globalOn = state.settings.adblock !== false;
   const allowed = host && adSiteAllowed(t.url);
   const head = el('div', { class: 'admenu-head' },
     el('b', {}, globalOn && !allowed ? 'مانع الإعلانات شغال' : 'مانع الإعلانات مقفول'),
-    el('div', {}, host && globalOn && !allowed ? `اتمنع ${s.tab} إعلان ومتتبع في ${host}` : 'بيمنع إعلانات يوتيوب تلقائي'),
+    el('div', {}, !globalOn ? 'مقفول في كل المواقع' : allowed ? `الإعلانات مسموحة في ${host}` : host ? `اتمنع ${s.tab} إعلان ومتتبع في ${host}` : 'بيمنع إعلانات يوتيوب تلقائي'),
     el('div', {}, `المجموع من أول ما فتحت المتصفح: ${s.blocked}`));
   m.append(head, el('hr'));
   const reload = () => { if (t && t.webview) t.webview.reload(); };

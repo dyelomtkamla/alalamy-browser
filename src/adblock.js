@@ -125,6 +125,8 @@ function attach(ses, fixHeaders) {
   ses.webRequest.onHeadersReceived({ urls: ['<all_urls>'] }, (details, done) => {
     // مستمع واحد بس مسموح لكل جلسة، فتعديلات المتصفح نفسه على الهيدرز بتعدي من هنا كمان
     const cb = fixHeaders ? (r) => done(fixHeaders(details, r || {})) : done;
+    // يوتيوب: مابنعدّلش أي هيدر (قواعد $csp من القوايم) علشان يوتيوب مايلاقيش أي أثر للمانع
+    if (YT_PAGE.test(details.resourceType === 'mainFrame' ? details.url : pageUrlOf(details))) return cb({});
     if (!activeFor(pageUrlOf(details)) && details.resourceType !== 'mainFrame') return cb({});
     if (details.resourceType === 'mainFrame' && !activeFor(details.url)) return cb({});
     engine.onHeadersReceived(details, cb);

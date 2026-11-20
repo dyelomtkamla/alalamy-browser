@@ -1909,6 +1909,19 @@ ipcMain.handle('adblock:allow', (_e, url, allow) => {
   writeJSON('settings.json', store.settings);
   return store.settings;
 });
+// صفحة يوتيوب: المستخدم داس «شغّل الفيديو بالإعلانات» في شريط «يوتيوب كشف المانع» (ضغطة حقيقية، والصفحة لازم تكون يوتيوب)
+ipcMain.on('adblock:yt-allow', (e) => {
+  let url = '';
+  try { url = e.sender.getURL(); } catch { return; }
+  if (!adblock.isYouTube(url)) return;
+  const host = adblock.hostOf(url);
+  if (!host) return;
+  const list = (store.settings.adAllow || []).filter(d => d !== host);
+  list.push(host);
+  store.settings.adAllow = list.slice(-500);
+  writeJSON('settings.json', store.settings);
+  try { e.sender.reload(); } catch { /* ignore */ }
+});
 ipcMain.handle('adblock:update', async () => {
   try { await adblock.update(true); return { ok: true }; } catch (e) { return { ok: false, error: String(e.message || e) }; }
 });
